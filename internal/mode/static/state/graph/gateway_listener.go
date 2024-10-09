@@ -306,8 +306,8 @@ func validateListenerAllowedRouteKind(listener v1.Listener) (conds []conditions.
 }
 
 func getListenerSupportedKinds(listener v1.Listener) []v1.RouteGroupKind {
-	_, kinds := getAndValidateListenerSupportedKinds(listener)
-	return kinds
+	_, sk := getAndValidateListenerSupportedKinds(listener)
+	return sk
 }
 
 func validateListenerLabelSelector(listener v1.Listener) (conds []conditions.Condition, attachable bool) {
@@ -563,7 +563,7 @@ func GetAllowedRouteLabelSelector(l v1.Listener) *metav1.LabelSelector {
 
 // matchesWildcard checks if hostname2 matches the wildcard pattern of hostname1.
 func matchesWildcard(hostname1, hostname2 string) bool {
-	matchesWildcard := func(h1, h2 string) bool {
+	mw := func(h1, h2 string) bool {
 		if strings.HasPrefix(h1, "*.") {
 			// Remove the "*." from h1
 			h1 = h1[2:]
@@ -572,7 +572,7 @@ func matchesWildcard(hostname1, hostname2 string) bool {
 		}
 		return false
 	}
-	return matchesWildcard(hostname1, hostname2) || matchesWildcard(hostname2, hostname1)
+	return mw(hostname1, hostname2) || mw(hostname2, hostname1)
 }
 
 // haveOverlap checks for overlap between two hostnames.

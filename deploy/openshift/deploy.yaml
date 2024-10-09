@@ -151,6 +151,19 @@ subjects:
   namespace: nginx-gateway
 ---
 apiVersion: v1
+data:
+  main.conf: |
+    error_log stderr info;
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/instance: nginx-gateway
+    app.kubernetes.io/name: nginx-gateway
+    app.kubernetes.io/version: edge
+  name: nginx-includes
+  namespace: nginx-gateway
+---
+apiVersion: v1
 kind: Service
 metadata:
   labels:
@@ -253,8 +266,8 @@ spec:
           name: nginx-conf
         - mountPath: /etc/nginx/stream-conf.d
           name: nginx-stream-conf
-        - mountPath: /etc/nginx/module-includes
-          name: module-includes
+        - mountPath: /etc/nginx/main-includes
+          name: nginx-main-includes
         - mountPath: /etc/nginx/secrets
           name: nginx-secrets
         - mountPath: /var/run/nginx
@@ -285,8 +298,8 @@ spec:
           name: nginx-conf
         - mountPath: /etc/nginx/stream-conf.d
           name: nginx-stream-conf
-        - mountPath: /etc/nginx/module-includes
-          name: module-includes
+        - mountPath: /etc/nginx/main-includes
+          name: nginx-main-includes
         - mountPath: /etc/nginx/secrets
           name: nginx-secrets
         - mountPath: /var/run/nginx
@@ -295,6 +308,33 @@ spec:
           name: nginx-cache
         - mountPath: /etc/nginx/includes
           name: nginx-includes
+      initContainers:
+      - command:
+        - /usr/bin/gateway
+        - copy
+        - --source
+        - /includes/main.conf
+        - --destination
+        - /etc/nginx/main-includes/main.conf
+        image: ghcr.io/nginxinc/nginx-gateway-fabric:edge
+        imagePullPolicy: Always
+        name: copy-nginx-config
+        securityContext:
+          capabilities:
+            add:
+            - KILL
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: 1001
+          runAsUser: 102
+          seccompProfile:
+            type: RuntimeDefault
+        volumeMounts:
+        - mountPath: /includes
+          name: nginx-includes-configmap
+        - mountPath: /etc/nginx/main-includes
+          name: nginx-main-includes
       securityContext:
         fsGroup: 1001
         runAsNonRoot: true
@@ -307,7 +347,7 @@ spec:
       - emptyDir: {}
         name: nginx-stream-conf
       - emptyDir: {}
-        name: module-includes
+        name: nginx-main-includes
       - emptyDir: {}
         name: nginx-secrets
       - emptyDir: {}
@@ -316,6 +356,9 @@ spec:
         name: nginx-cache
       - emptyDir: {}
         name: nginx-includes
+      - configMap:
+          name: nginx-includes
+        name: nginx-includes-configmap
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: GatewayClass
@@ -381,3 +424,4 @@ users:
 volumes:
 - emptyDir
 - secret
+- configMap

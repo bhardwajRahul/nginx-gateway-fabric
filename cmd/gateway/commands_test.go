@@ -40,21 +40,6 @@ func testFlag(t *testing.T, cmd *cobra.Command, test flagTestCase) {
 	}
 }
 
-/*
-This test cannot be run with ginkgo. Ginkgo reports the following error:
-* Unexpected error:
-*       <*errors.errorString | 0xc0004746b0>:
-*       unknown flag: --test.v
-*       {
-*           s: "unknown flag: --test.v",
-*       }
-*   occurred
-*
-* This is because cobra sets the args of the command to the OS args when args are nil, and adds the testing flags
-* that ginkgo passes to the testing binary as flags on the command. This does not happen with the `go test` flags
-* because those only have one dash (e.g. -test) and are ignored by cobra.
-* See https://github.com/spf13/cobra/issues/2104.
-*/
 func TestRootCmd(t *testing.T) {
 	t.Parallel()
 	testCase := flagTestCase{
@@ -133,7 +118,6 @@ func TestCommonFlagsValidation(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name+"_static_mode", func(t *testing.T) {
 			t.Parallel()
 			testFlag(t, createStaticModeCommand(), test)
@@ -167,6 +151,7 @@ func TestStaticModeCmdFlagValidation(t *testing.T) {
 				"--usage-report-secret=default/my-secret",
 				"--usage-report-server-url=https://my-api.com",
 				"--usage-report-cluster-name=my-cluster",
+				"--snippets-filters",
 			},
 			wantErr: false,
 		},
@@ -382,12 +367,20 @@ func TestStaticModeCmdFlagValidation(t *testing.T) {
 			wantErr:           true,
 			expectedErrPrefix: `invalid argument "$invalid*(#)" for "--usage-report-cluster-name" flag: invalid format`,
 		},
+		{
+			name: "snippets-filters is not a bool",
+			expectedErrPrefix: `invalid argument "not-a-bool" for "--snippets-filters" flag: strconv.ParseBool:` +
+				` parsing "not-a-bool": invalid syntax`,
+			args: []string{
+				"--snippets-filters=not-a-bool",
+			},
+			wantErr: true,
+		},
 	}
 
 	// common flags validation is tested separately
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			cmd := createStaticModeCommand()
@@ -412,21 +405,6 @@ func TestProvisionerModeCmdFlagValidation(t *testing.T) {
 	testFlag(t, createProvisionerModeCommand(), testCase)
 }
 
-/*
-This test cannot be run with ginkgo. Ginkgo reports the following error for the "omitted flag" case:
-* Unexpected error:
-*       <*errors.errorString | 0xc0004746b0>:
-*       unknown flag: --test.v
-*       {
-*           s: "unknown flag: --test.v",
-*       }
-*   occurred
-*
-* This is because cobra sets the args of the command to the OS args when args are nil, and adds the testing flags
-* that ginkgo passes to the testing binary as flags on the command. This does not happen with the `go test` flags
-* because those only have one dash (e.g. -test) and are ignored by cobra.
-* See https://github.com/spf13/cobra/issues/2104.
-*/
 func TestSleepCmdFlagValidation(t *testing.T) {
 	t.Parallel()
 	tests := []flagTestCase{
@@ -461,10 +439,54 @@ func TestSleepCmdFlagValidation(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			cmd := createSleepCommand()
+			testFlag(t, cmd, test)
+		})
+	}
+}
+
+func TestCopyCmdFlagValidation(t *testing.T) {
+	t.Parallel()
+	tests := []flagTestCase{
+		{
+			name: "valid flags",
+			args: []string{
+				"--source=/my/file",
+				"--destination=dest/file",
+			},
+			wantErr: false,
+		},
+		{
+			name:    "omitted flags",
+			args:    nil,
+			wantErr: false,
+		},
+		{
+			name: "source set without destination",
+			args: []string{
+				"--source=/my/file",
+			},
+			wantErr: true,
+			expectedErrPrefix: "if any flags in the group [source destination] are set they must all be set; " +
+				"missing [destination]",
+		},
+		{
+			name: "destination set without source",
+			args: []string{
+				"--destination=/dest/file",
+			},
+			wantErr: true,
+			expectedErrPrefix: "if any flags in the group [source destination] are set they must all be set; " +
+				"missing [source]",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			cmd := createCopyCommand()
 			testFlag(t, cmd, test)
 		})
 	}

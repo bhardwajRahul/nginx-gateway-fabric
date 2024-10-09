@@ -1,7 +1,7 @@
 
 # NGINX Gateway Fabric Helm Chart
 
-![Version: 1.3.0](https://img.shields.io/badge/Version-1.3.0-informational?style=flat-square) ![AppVersion: edge](https://img.shields.io/badge/AppVersion-edge-informational?style=flat-square)
+![Version: 1.4.0](https://img.shields.io/badge/Version-1.4.0-informational?style=flat-square) ![AppVersion: edge](https://img.shields.io/badge/AppVersion-edge-informational?style=flat-square)
 
 - [NGINX Gateway Fabric Helm Chart](#nginx-gateway-fabric-helm-chart)
   - [Introduction](#introduction)
@@ -191,23 +191,23 @@ being performed on NGF), you may need to configure delayed termination on the NG
 
    ```yaml
     nginxGateway:
-    <...>
-    lifecycle:
-        preStop:
-        exec:
-            command:
-            - /usr/bin/gateway
-            - sleep
-            - --duration=40s # This flag is optional, the default is 30s
+        <...>
+        lifecycle:
+            preStop:
+                exec:
+                    command:
+                    - /usr/bin/gateway
+                    - sleep
+                    - --duration=40s # This flag is optional, the default is 30s
 
     nginx:
-    <...>
-    lifecycle:
-        preStop:
-        exec:
-            command:
-            - /bin/sleep
-            - "40"
+        <...>
+        lifecycle:
+            preStop:
+                exec:
+                    command:
+                    - /bin/sleep
+                    - "40"
    ```
 
 2. Ensure the `terminationGracePeriodSeconds` matches or exceeds the `sleep` value from the `preStopHook` (the default
@@ -258,9 +258,10 @@ The following table lists the configurable parameters of the NGINX Gateway Fabri
 | `affinity` | The affinity of the NGINX Gateway Fabric pod. | object | `{}` |
 | `extraVolumes` | extraVolumes for the NGINX Gateway Fabric pod. Use in conjunction with nginxGateway.extraVolumeMounts and nginx.extraVolumeMounts to mount additional volumes to the containers. | list | `[]` |
 | `metrics.enable` | Enable exposing metrics in the Prometheus format. | bool | `true` |
-| `metrics.port` | Set the port where the Prometheus metrics are exposed. Format: [1024 - 65535] | int | `9113` |
+| `metrics.port` | Set the port where the Prometheus metrics are exposed. | int | `9113` |
 | `metrics.secure` | Enable serving metrics via https. By default metrics are served via http. Please note that this endpoint will be secured with a self-signed certificate. | bool | `false` |
 | `nginx.config` | The configuration for the data plane that is contained in the NginxProxy resource. | object | `{}` |
+| `nginx.debug` | Enable debugging for NGINX. Uses the nginx-debug binary. The NGINX error log level should be set to debug in the NginxProxy resource. | bool | `false` |
 | `nginx.extraVolumeMounts` | extraVolumeMounts are the additional volume mounts for the nginx container. | list | `[]` |
 | `nginx.image.pullPolicy` |  | string | `"Always"` |
 | `nginx.image.repository` | The NGINX image to use. | string | `"ghcr.io/nginxinc/nginx-gateway-fabric/nginx"` |
@@ -271,7 +272,7 @@ The following table lists the configurable parameters of the NGINX Gateway Fabri
 | `nginx.usage.insecureSkipVerify` | Disable client verification of the NGINX Plus usage reporting server certificate. | bool | `false` |
 | `nginx.usage.secretName` | The namespace/name of the Secret containing the credentials for NGINX Plus usage reporting. | string | `""` |
 | `nginx.usage.serverURL` | The base server URL of the NGINX Plus usage reporting server. | string | `""` |
-| `nginxGateway.config.logging.level` | Log level. Supported values "info", "debug", "error". | string | `"info"` |
+| `nginxGateway.config.logging.level` | Log level. | string | `"info"` |
 | `nginxGateway.configAnnotations` | Set of custom annotations for NginxGateway objects. | object | `{}` |
 | `nginxGateway.extraVolumeMounts` | extraVolumeMounts are the additional volume mounts for the nginx-gateway container. | list | `[]` |
 | `nginxGateway.gatewayClassAnnotations` | Set of custom annotations for GatewayClass objects. | object | `{}` |
@@ -293,13 +294,14 @@ The following table lists the configurable parameters of the NGINX Gateway Fabri
 | `nginxGateway.replicaCount` | The number of replicas of the NGINX Gateway Fabric Deployment. | int | `1` |
 | `nginxGateway.resources` | The resource requests and/or limits of the nginx-gateway container. | object | `{}` |
 | `nginxGateway.securityContext.allowPrivilegeEscalation` | Some environments may need this set to true in order for the control plane to successfully reload NGINX. | bool | `false` |
+| `nginxGateway.snippetsFilters.enable` | Enable SnippetsFilters feature. SnippetsFilters allow inserting NGINX configuration into the generated NGINX config for HTTPRoute and GRPCRoute resources. | bool | `false` |
 | `nodeSelector` | The nodeSelector of the NGINX Gateway Fabric pod. | object | `{}` |
 | `service.annotations` | The annotations of the NGINX Gateway Fabric service. | object | `{}` |
 | `service.create` | Creates a service to expose the NGINX Gateway Fabric pods. | bool | `true` |
 | `service.externalTrafficPolicy` | The externalTrafficPolicy of the service. The value Local preserves the client source IP. | string | `"Local"` |
 | `service.ports` | A list of ports to expose through the NGINX Gateway Fabric service. Update it to match the listener ports from your Gateway resource. Follows the conventional Kubernetes yaml syntax for service ports. | list | `[{"name":"http","port":80,"protocol":"TCP","targetPort":80},{"name":"https","port":443,"protocol":"TCP","targetPort":443}]` |
 | `service.type` | The type of service to create for the NGINX Gateway Fabric. | string | `"LoadBalancer"` |
-| `serviceAccount.annotations` |  | object | `{}` |
+| `serviceAccount.annotations` | Set of custom annotations for the NGINX Gateway Fabric service account. | object | `{}` |
 | `serviceAccount.imagePullSecret` | The name of the secret containing docker registry credentials. Secret must exist in the same namespace as the helm release. | string | `""` |
 | `serviceAccount.imagePullSecrets` | A list of secret names containing docker registry credentials. Secrets must exist in the same namespace as the helm release. | list | `[]` |
 | `serviceAccount.name` | The name of the service account of the NGINX Gateway Fabric pods. Used for RBAC. | string | Autogenerated if not set or set to "" |

@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -17,7 +16,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	promv1 "github.com/prometheus/client_golang/api/prometheus/v1"
-	"github.com/prometheus/common/model"
 	core "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -52,13 +50,16 @@ var _ = Describe("Scale test", Ordered, Label("nfr", "scale"), func() {
 		ngfPodName            string
 		promInstance          framework.PrometheusInstance
 		promPortForwardStopCh = make(chan struct{})
+
+		upstreamServerCount int32
 	)
 
 	const (
-		httpListenerCount   = 64
-		httpsListenerCount  = 64
-		httpRouteCount      = 1000
-		upstreamServerCount = 648
+		httpListenerCount       = 64
+		httpsListenerCount      = 64
+		httpRouteCount          = 1000
+		ossUpstreamServerCount  = 648
+		plusUpstreamServerCount = 556
 	)
 
 	BeforeAll(func() {
@@ -87,6 +88,12 @@ var _ = Describe("Scale test", Ordered, Label("nfr", "scale"), func() {
 		if !clusterInfo.IsGKE {
 			Expect(promInstance.PortForward(k8sConfig, promPortForwardStopCh)).To(Succeed())
 		}
+
+		if *plusEnabled {
+			upstreamServerCount = plusUpstreamServerCount
+		} else {
+			upstreamServerCount = ossUpstreamServerCount
+		}
 	})
 
 	BeforeEach(func() {
@@ -109,15 +116,10 @@ var _ = Describe("Scale test", Ordered, Label("nfr", "scale"), func() {
 		ngfPodName = podNames[0]
 	})
 
-	type bucket struct {
-		Le  string
-		Val int
-	}
-
 	type scaleTestResults struct {
 		Name                   string
-		EventsBuckets          []bucket
-		ReloadBuckets          []bucket
+		EventsBuckets          []framework.Bucket
+		ReloadBuckets          []framework.Bucket
 		EventsAvgTime          int
 		EventsCount            int
 		NGFContainerRestarts   int
@@ -173,91 +175,6 @@ The logs are attached only if there are errors.
 		return tmpl.Execute(dest, results)
 	}
 
-	createResponseChecker := func(url, address string) func() error {
-		return func() error {
-			status, _, err := framework.Get(url, address, timeoutConfig.RequestTimeout)
-			if err != nil {
-				return fmt.Errorf("bad response: %w", err)
-			}
-
-			if status != 200 {
-				return fmt.Errorf("unexpected status code: %d", status)
-			}
-
-			return nil
-		}
-	}
-
-	createMetricExistChecker := func(query string, getTime func() time.Time, modifyTime func()) func() error {
-		return func() error {
-			queryWithTimestamp := fmt.Sprintf("%s @ %d", query, getTime().Unix())
-
-			result, err := promInstance.Query(queryWithTimestamp)
-			if err != nil {
-				return fmt.Errorf("failed to query Prometheus: %w", err)
-			}
-
-			if result.String() == "" {
-				modifyTime()
-				return errors.New("empty result")
-			}
-
-			return nil
-		}
-	}
-
-	createEndTimeFinder := func(query string, startTime time.Time, t *time.Time) func() error {
-		return func() error {
-			result, err := promInstance.QueryRange(query, promv1.Range{
-				Start: startTime,
-				End:   *t,
-				Step:  queryRangeStep,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to query Prometheus: %w", err)
-			}
-
-			if result.String() == "" {
-				*t = time.Now()
-				return errors.New("empty result")
-			}
-
-			return nil
-		}
-	}
-
-	getFirstValueOfVector := func(query string) float64 {
-		result, err := promInstance.Query(query)
-		Expect(err).ToNot(HaveOccurred())
-
-		val, err := framework.GetFirstValueOfPrometheusVector(result)
-		Expect(err).ToNot(HaveOccurred())
-
-		return val
-	}
-
-	getBuckets := func(query string) []bucket {
-		result, err := promInstance.Query(query)
-		Expect(err).ToNot(HaveOccurred())
-
-		res, ok := result.(model.Vector)
-		Expect(ok).To(BeTrue())
-
-		buckets := make([]bucket, 0, len(res))
-
-		for _, sample := range res {
-			le := sample.Metric["le"]
-			val := float64(sample.Value)
-			bucket := bucket{
-				Le:  string(le),
-				Val: int(val),
-			}
-			buckets = append(buckets, bucket)
-		}
-
-		return buckets
-	}
-
 	checkLogErrors := func(
 		containerName string,
 		substrings []string,
@@ -270,7 +187,7 @@ The logs are attached only if there are errors.
 		Expect(err).ToNot(HaveOccurred())
 
 		logLines := strings.Split(logs, "\n")
-		errors := 0
+		var errors []string
 
 	outer:
 		for _, line := range logLines {
@@ -281,22 +198,24 @@ The logs are attached only if there are errors.
 			}
 			for _, substr := range substrings {
 				if strings.Contains(line, substr) {
-					errors++
+					errors = append(errors, line)
 					continue outer
 				}
 			}
 		}
 
-		// attach full logs
-		if errors > 0 {
+		// attach error logs
+		if len(errors) > 0 {
 			f, err := os.Create(fileName)
 			Expect(err).ToNot(HaveOccurred())
 			defer f.Close()
 
-			_, err = io.WriteString(f, logs)
-			Expect(err).ToNot(HaveOccurred())
+			for _, e := range errors {
+				_, err = io.WriteString(f, fmt.Sprintf("%s\n", e))
+				Expect(err).ToNot(HaveOccurred())
+			}
 		}
-		return errors
+		return len(errors)
 	}
 
 	runTestWithMetricsAndLogs := func(testName, testResultsDir string, test func()) {
@@ -323,7 +242,8 @@ The logs are attached only if there are errors.
 
 		for _, q := range queries {
 			Eventually(
-				createMetricExistChecker(
+				framework.CreateMetricExistChecker(
+					promInstance,
 					q,
 					getStartTime,
 					modifyStartTime,
@@ -345,10 +265,12 @@ The logs are attached only if there are errors.
 		// the rate query may not return any data.
 		// To ensure it returns data, we increase the startTime.
 		Eventually(
-			createEndTimeFinder(
+			framework.CreateEndTimeFinder(
+				promInstance,
 				fmt.Sprintf(`rate(container_cpu_usage_seconds_total{pod="%s",container="nginx-gateway"}[2m])`, ngfPodName),
 				startTime,
 				&endTime,
+				queryRangeStep,
 			),
 		).WithTimeout(metricExistTimeout).WithPolling(metricExistPolling).Should(Succeed())
 
@@ -363,7 +285,8 @@ The logs are attached only if there are errors.
 
 		for _, q := range queries {
 			Eventually(
-				createMetricExistChecker(
+				framework.CreateMetricExistChecker(
+					promInstance,
 					q,
 					getEndTime,
 					noOpModifier,
@@ -414,82 +337,26 @@ The logs are attached only if there are errors.
 
 		Expect(os.Remove(cpuCSV)).To(Succeed())
 
-		reloadCount := getFirstValueOfVector(
-			fmt.Sprintf(
-				`nginx_gateway_fabric_nginx_reloads_total{pod="%[1]s"}`+
-					` - `+
-					`nginx_gateway_fabric_nginx_reloads_total{pod="%[1]s"} @ %d`,
-				ngfPodName,
-				startTime.Unix(),
-			),
-		)
+		reloadCount, err := framework.GetReloadCountWithStartTime(promInstance, ngfPodName, startTime)
+		Expect(err).ToNot(HaveOccurred())
 
-		reloadErrsCount := getFirstValueOfVector(
-			fmt.Sprintf(
-				`nginx_gateway_fabric_nginx_reload_errors_total{pod="%[1]s"}`+
-					` - `+
-					`nginx_gateway_fabric_nginx_reload_errors_total{pod="%[1]s"} @ %d`,
-				ngfPodName,
-				startTime.Unix(),
-			),
-		)
+		reloadErrsCount, err := framework.GetReloadErrsCountWithStartTime(promInstance, ngfPodName, startTime)
+		Expect(err).ToNot(HaveOccurred())
 
-		reloadAvgTime := getFirstValueOfVector(
-			fmt.Sprintf(
-				`(nginx_gateway_fabric_nginx_reloads_milliseconds_sum{pod="%[1]s"}`+
-					` - `+
-					`nginx_gateway_fabric_nginx_reloads_milliseconds_sum{pod="%[1]s"} @ %[2]d)`+
-					` / `+
-					`(nginx_gateway_fabric_nginx_reloads_total{pod="%[1]s"}`+
-					` - `+
-					`nginx_gateway_fabric_nginx_reloads_total{pod="%[1]s"} @ %[2]d)`,
-				ngfPodName,
-				startTime.Unix(),
-			))
+		reloadAvgTime, err := framework.GetReloadAvgTimeWithStartTime(promInstance, ngfPodName, startTime)
+		Expect(err).ToNot(HaveOccurred())
 
-		reloadBuckets := getBuckets(
-			fmt.Sprintf(
-				`nginx_gateway_fabric_nginx_reloads_milliseconds_bucket{pod="%[1]s"}`+
-					` - `+
-					`nginx_gateway_fabric_nginx_reloads_milliseconds_bucket{pod="%[1]s"} @ %d`,
-				ngfPodName,
-				startTime.Unix(),
-			),
-		)
+		reloadBuckets, err := framework.GetReloadBucketsWithStartTime(promInstance, ngfPodName, startTime)
+		Expect(err).ToNot(HaveOccurred())
 
-		eventsCount := getFirstValueOfVector(
-			fmt.Sprintf(
-				`nginx_gateway_fabric_event_batch_processing_milliseconds_count{pod="%[1]s"}`+
-					` - `+
-					`nginx_gateway_fabric_event_batch_processing_milliseconds_count{pod="%[1]s"} @ %d`,
-				ngfPodName,
-				startTime.Unix(),
-			),
-		)
+		eventsCount, err := framework.GetEventsCountWithStartTime(promInstance, ngfPodName, startTime)
+		Expect(err).ToNot(HaveOccurred())
 
-		eventsAvgTime := getFirstValueOfVector(
-			fmt.Sprintf(
-				`(nginx_gateway_fabric_event_batch_processing_milliseconds_sum{pod="%[1]s"}`+
-					` - `+
-					`nginx_gateway_fabric_event_batch_processing_milliseconds_sum{pod="%[1]s"} @ %[2]d)`+
-					` / `+
-					`(nginx_gateway_fabric_event_batch_processing_milliseconds_count{pod="%[1]s"}`+
-					` - `+
-					`nginx_gateway_fabric_event_batch_processing_milliseconds_count{pod="%[1]s"} @ %[2]d)`,
-				ngfPodName,
-				startTime.Unix(),
-			),
-		)
+		eventsAvgTime, err := framework.GetEventsAvgTimeWithStartTime(promInstance, ngfPodName, startTime)
+		Expect(err).ToNot(HaveOccurred())
 
-		eventsBuckets := getBuckets(
-			fmt.Sprintf(
-				`nginx_gateway_fabric_event_batch_processing_milliseconds_bucket{pod="%[1]s"}`+
-					` - `+
-					`nginx_gateway_fabric_event_batch_processing_milliseconds_bucket{pod="%[1]s"} @ %d`,
-				ngfPodName,
-				startTime.Unix(),
-			),
-		)
+		eventsBuckets, err := framework.GetEventsBucketsWithStartTime(promInstance, ngfPodName, startTime)
+		Expect(err).ToNot(HaveOccurred())
 
 		// Check container logs for errors
 
@@ -573,7 +440,7 @@ The logs are attached only if there are errors.
 			startCheck := time.Now()
 
 			Eventually(
-				createResponseChecker(url, address),
+				framework.CreateResponseChecker(url, address, timeoutConfig.RequestTimeout),
 			).WithTimeout(30 * time.Second).WithPolling(100 * time.Millisecond).Should(Succeed())
 
 			ttr := time.Since(startCheck)
@@ -607,7 +474,7 @@ The logs are attached only if there are errors.
 		}
 
 		Eventually(
-			createResponseChecker(url, address),
+			framework.CreateResponseChecker(url, address, timeoutConfig.RequestTimeout),
 		).WithTimeout(5 * time.Second).WithPolling(100 * time.Millisecond).Should(Succeed())
 
 		Expect(
@@ -620,7 +487,7 @@ The logs are attached only if there are errors.
 		Expect(resourceManager.WaitForPodsToBeReady(ctx, namespace)).To(Succeed())
 
 		Eventually(
-			createResponseChecker(url, address),
+			framework.CreateResponseChecker(url, address, timeoutConfig.RequestTimeout),
 		).WithTimeout(5 * time.Second).WithPolling(100 * time.Millisecond).Should(Succeed())
 	}
 
@@ -707,7 +574,10 @@ The logs are attached only if there are errors.
 		)
 	})
 
-	It(fmt.Sprintf("scales upstream servers to %d", upstreamServerCount), func() {
+	It(fmt.Sprintf("scales upstream servers to %d for OSS and %d for Plus",
+		ossUpstreamServerCount,
+		plusUpstreamServerCount,
+	), func() {
 		const testName = "TestScale_UpstreamServers"
 
 		testResultsDir := filepath.Join(resultsDir, testName)
@@ -880,7 +750,6 @@ var _ = Describe("Zero downtime scale test", Ordered, Label("nfr", "zero-downtim
 		buf := new(bytes.Buffer)
 		encoder := framework.NewVegetaCSVEncoder(buf)
 		for _, res := range results {
-			res := res
 			Expect(encoder.Encode(&res)).To(Succeed())
 		}
 
@@ -930,7 +799,7 @@ var _ = Describe("Zero downtime scale test", Ordered, Label("nfr", "zero-downtim
 	})
 
 	AfterAll(func() {
-		_, err := fmt.Fprintln(outFile)
+		_, err := fmt.Fprint(outFile)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(outFile.Close()).To(Succeed())
 

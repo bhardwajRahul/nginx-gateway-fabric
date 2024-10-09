@@ -68,7 +68,8 @@ func PrepareRouteRequests(
 			r.Source.GetGeneration(),
 		)
 
-		if r.RouteType == graph.RouteTypeHTTP {
+		switch r.RouteType {
+		case graph.RouteTypeHTTP:
 			status := v1.HTTPRouteStatus{
 				RouteStatus: routeStatus,
 			}
@@ -80,7 +81,8 @@ func PrepareRouteRequests(
 			}
 
 			reqs = append(reqs, req)
-		} else if r.RouteType == graph.RouteTypeGRPC {
+
+		case graph.RouteTypeGRPC:
 			status := v1.GRPCRouteStatus{
 				RouteStatus: routeStatus,
 			}
@@ -92,7 +94,8 @@ func PrepareRouteRequests(
 			}
 
 			reqs = append(reqs, req)
-		} else {
+
+		default:
 			panic(fmt.Sprintf("Unknown route type: %s", r.RouteType))
 		}
 	}
@@ -284,7 +287,7 @@ func prepareGatewayRequest(
 		listenerStatuses = append(listenerStatuses, v1.ListenerStatus{
 			Name:           v1.SectionName(l.Name),
 			SupportedKinds: l.SupportedKinds,
-			AttachedRoutes: int32(len(l.Routes)) + int32(len(l.L4Routes)),
+			AttachedRoutes: int32(len(l.Routes)) + int32(len(l.L4Routes)), //nolint:gosec // num routes will not overflow
 			Conditions:     apiConds,
 		})
 	}
@@ -403,6 +406,44 @@ func PrepareBackendTLSPolicyRequests(
 			Setter:       newBackendTLSPolicyStatusSetter(status, gatewayCtlrName),
 		})
 	}
+	return reqs
+}
+
+// PrepareSnippetsFilterRequests prepares status UpdateRequests for the given SnippetsFilters.
+func PrepareSnippetsFilterRequests(
+	snippetsFilters map[types.NamespacedName]*graph.SnippetsFilter,
+	transitionTime metav1.Time,
+	gatewayCtlrName string,
+) []frameworkStatus.UpdateRequest {
+	reqs := make([]frameworkStatus.UpdateRequest, 0, len(snippetsFilters))
+
+	for nsname, snippetsFilter := range snippetsFilters {
+		allConds := make([]conditions.Condition, 0, len(snippetsFilter.Conditions)+1)
+
+		// The order of conditions matters here.
+		// We add the default condition first, followed by the snippetsFilter conditions.
+		// DeduplicateConditions will ensure the last condition wins.
+		allConds = append(allConds, staticConds.NewSnippetsFilterAccepted())
+		allConds = append(allConds, snippetsFilter.Conditions...)
+
+		conds := conditions.DeduplicateConditions(allConds)
+		apiConds := conditions.ConvertConditions(conds, snippetsFilter.Source.GetGeneration(), transitionTime)
+		status := ngfAPI.SnippetsFilterStatus{
+			Controllers: []ngfAPI.ControllerStatus{
+				{
+					Conditions:     apiConds,
+					ControllerName: v1alpha2.GatewayController(gatewayCtlrName),
+				},
+			},
+		}
+
+		reqs = append(reqs, frameworkStatus.UpdateRequest{
+			NsName:       nsname,
+			ResourceType: snippetsFilter.Source,
+			Setter:       newSnippetsFilterStatusSetter(status, gatewayCtlrName),
+		})
+	}
+
 	return reqs
 }
 

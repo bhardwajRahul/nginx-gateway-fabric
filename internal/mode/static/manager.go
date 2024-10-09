@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/go-logr/logr"
-	ngxclient "github.com/nginxinc/nginx-plus-go-client/client"
 	tel "github.com/nginxinc/telemetry-exporter/pkg/telemetry"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -107,14 +107,15 @@ func StartManager(cfg config.Config) error {
 		Namespace: cfg.GatewayPodConfig.Namespace,
 		Name:      cfg.ConfigName,
 	}
-	if err := registerControllers(ctx, cfg, mgr, recorder, logLevelSetter, eventCh, controlConfigNSName); err != nil {
+	err = registerControllers(ctx, cfg, mgr, recorder, logLevelSetter, eventCh, controlConfigNSName)
+	if err != nil {
 		return err
 	}
 
 	// protectedPorts is the map of ports that may not be configured by a listener, and the name of what it is used for
 	protectedPorts := map[int32]string{
-		int32(cfg.MetricsConfig.Port): "MetricsPort",
-		int32(cfg.HealthConfig.Port):  "HealthPort",
+		int32(cfg.MetricsConfig.Port): "MetricsPort", //nolint:gosec // port will not overflow int32
+		int32(cfg.HealthConfig.Port):  "HealthPort",  //nolint:gosec // port will not overflow int32
 	}
 
 	mustExtractGVK := kinds.NewMustExtractGKV(scheme)
@@ -136,34 +137,24 @@ func StartManager(cfg config.Config) error {
 		ProtectedPorts: protectedPorts,
 	})
 
-	// Clear the configuration folders to ensure that no files are left over in case the control plane was restarted
-	// (this assumes the folders are in a shared volume).
-	removedPaths, err := file.ClearFolders(file.NewStdLibOSFileManager(), ngxcfg.ConfigFolders)
-	for _, path := range removedPaths {
-		cfg.Logger.Info("removed configuration file", "path", path)
-	}
-	if err != nil {
-		return fmt.Errorf("cannot clear NGINX configuration folders: %w", err)
-	}
+	processHandler := ngxruntime.NewProcessHandlerImpl(os.ReadFile, os.Stat)
 
 	// Ensure NGINX is running before registering metrics & starting the manager.
-	if err := ngxruntime.EnsureNginxRunning(ctx); err != nil {
+	p, err := processHandler.FindMainProcess(ctx, ngxruntime.PidFileTimeout)
+	if err != nil {
 		return fmt.Errorf("NGINX is not running: %w", err)
 	}
+	cfg.Logger.V(1).Info("NGINX is running with PID", "pid", p)
 
 	var (
 		ngxruntimeCollector ngxruntime.MetricsCollector = collectors.NewManagerNoopCollector()
 		handlerCollector    handlerMetricsCollector     = collectors.NewControllerNoopCollector()
 	)
 
-	var ngxPlusClient *ngxclient.NginxClient
+	var ngxPlusClient ngxruntime.NginxPlusClient
 	var usageSecret *usage.Secret
-	if cfg.Plus {
-		ngxPlusClient, err = ngxruntime.CreatePlusClient()
-		if err != nil {
-			return fmt.Errorf("error creating NGINX plus client: %w", err)
-		}
 
+	if cfg.Plus {
 		if cfg.UsageReportConfig != nil {
 			usageSecret = usage.NewUsageSecret()
 			reporter, err := createUsageReporterJob(mgr.GetAPIReader(), cfg, usageSecret, nginxChecker.getReadyCh())
@@ -185,6 +176,10 @@ func StartManager(cfg config.Config) error {
 		constLabels := map[string]string{"class": cfg.GatewayClassName}
 		var ngxCollector prometheus.Collector
 		if cfg.Plus {
+			ngxPlusClient, err = ngxruntime.CreatePlusClient()
+			if err != nil {
+				return fmt.Errorf("error creating NGINX plus client: %w", err)
+			}
 			ngxCollector, err = collectors.NewNginxPlusMetricsCollector(ngxPlusClient, constLabels, promLogger)
 		} else {
 			ngxCollector = collectors.NewNginxMetricsCollector(constLabels, promLogger)
@@ -195,10 +190,20 @@ func StartManager(cfg config.Config) error {
 
 		ngxruntimeCollector = collectors.NewManagerMetricsCollector(constLabels)
 		handlerCollector = collectors.NewControllerCollector(constLabels)
+
+		ngxruntimeCollector, ok := ngxruntimeCollector.(prometheus.Collector)
+		if !ok {
+			return fmt.Errorf("ngxruntimeCollector is not a prometheus.Collector: %w", status.ErrFailedAssert)
+		}
+		handlerCollector, ok := handlerCollector.(prometheus.Collector)
+		if !ok {
+			return fmt.Errorf("handlerCollector is not a prometheus.Collector: %w", status.ErrFailedAssert)
+		}
+
 		metrics.Registry.MustRegister(
 			ngxCollector,
-			ngxruntimeCollector.(prometheus.Collector),
-			handlerCollector.(prometheus.Collector),
+			ngxruntimeCollector,
+			handlerCollector,
 		)
 	}
 
@@ -223,6 +228,8 @@ func StartManager(cfg config.Config) error {
 			ngxPlusClient,
 			ngxruntimeCollector,
 			cfg.Logger.WithName("nginxRuntimeManager"),
+			processHandler,
+			ngxruntime.NewVerifyClient(ngxruntime.NginxReloadTimeout),
 		),
 		statusUpdater:                 groupStatusUpdater,
 		eventRecorder:                 recorder,
@@ -236,11 +243,8 @@ func StartManager(cfg config.Config) error {
 		updateGatewayClassStatus:      cfg.UpdateGatewayClassStatus,
 	})
 
-	objects, objectLists := prepareFirstEventBatchPreparerArgs(
-		cfg.GatewayClassName,
-		cfg.GatewayNsName,
-		cfg.ExperimentalFeatures,
-	)
+	objects, objectLists := prepareFirstEventBatchPreparerArgs(cfg)
+
 	firstBatchPreparer := events.NewFirstEventBatchPreparerImpl(mgr.GetCache(), objects, objectLists)
 	eventLoop := events.NewEventLoop(
 		eventCh,
@@ -282,6 +286,11 @@ func StartManager(cfg config.Config) error {
 	}
 
 	cfg.Logger.Info("Starting manager")
+	go func() {
+		<-ctx.Done()
+		cfg.Logger.Info("Shutting down")
+	}()
+
 	return mgr.Start(ctx)
 }
 
@@ -306,7 +315,7 @@ func createPolicyManager(
 func createManager(cfg config.Config, nginxChecker *nginxConfiguredOnStartChecker) (manager.Manager, error) {
 	options := manager.Options{
 		Scheme:  scheme,
-		Logger:  cfg.Logger,
+		Logger:  cfg.Logger.V(1),
 		Metrics: getMetricsOptions(cfg.MetricsConfig),
 		// Note: when the leadership is lost, the manager will return an error in the Start() method.
 		// However, it will not wait for any Runnable it starts to finish, meaning any in-progress operations
@@ -356,6 +365,7 @@ func registerControllers(
 	controlConfigNSName types.NamespacedName,
 ) error {
 	type ctlrCfg struct {
+		name       string
 		objectType ngftypes.ObjectType
 		options    []controller.Option
 	}
@@ -402,12 +412,14 @@ func registerControllers(
 		},
 		{
 			objectType: &apiv1.Service{},
+			name:       "user-service", // unique controller names are needed and we have multiple Service ctlrs
 			options: []controller.Option{
 				controller.WithK8sPredicate(predicate.ServicePortsChangedPredicate{}),
 			},
 		},
 		{
 			objectType: &apiv1.Service{},
+			name:       "ngf-service", // unique controller names are needed and we have multiple Service ctlrs
 			options: func() []controller.Option {
 				svcNSName := types.NamespacedName{
 					Namespace: cfg.GatewayPodConfig.Namespace,
@@ -520,10 +532,27 @@ func registerControllers(
 		}
 	}
 
+	if cfg.SnippetsFilters {
+		controllerRegCfgs = append(controllerRegCfgs,
+			ctlrCfg{
+				objectType: &ngfAPI.SnippetsFilter{},
+				options: []controller.Option{
+					controller.WithK8sPredicate(k8spredicate.GenerationChangedPredicate{}),
+				},
+			},
+		)
+	}
+
 	for _, regCfg := range controllerRegCfgs {
+		name := regCfg.objectType.GetObjectKind().GroupVersionKind().Kind
+		if regCfg.name != "" {
+			name = regCfg.name
+		}
+
 		if err := controller.Register(
 			ctx,
 			regCfg.objectType,
+			name,
 			mgr,
 			eventCh,
 			regCfg.options...,
@@ -552,9 +581,6 @@ func createTelemetryJob(
 
 		options := []otlptracegrpc.Option{
 			otlptracegrpc.WithEndpoint(cfg.ProductTelemetryConfig.Endpoint),
-			otlptracegrpc.WithHeaders(map[string]string{
-				"X-F5-OTEL": "GRPC",
-			}),
 		}
 		if cfg.ProductTelemetryConfig.EndpointInsecure {
 			options = append(options, otlptracegrpc.WithInsecure())
@@ -634,13 +660,9 @@ func createUsageWarningJob(cfg config.Config, readyCh <-chan struct{}) *runnable
 	}
 }
 
-func prepareFirstEventBatchPreparerArgs(
-	gcName string,
-	gwNsName *types.NamespacedName,
-	enableExperimentalFeatures bool,
-) ([]client.Object, []client.ObjectList) {
+func prepareFirstEventBatchPreparerArgs(cfg config.Config) ([]client.Object, []client.ObjectList) {
 	objects := []client.Object{
-		&gatewayv1.GatewayClass{ObjectMeta: metav1.ObjectMeta{Name: gcName}},
+		&gatewayv1.GatewayClass{ObjectMeta: metav1.ObjectMeta{Name: cfg.GatewayClassName}},
 	}
 
 	partialObjectMetadataList := &metav1.PartialObjectMetadataList{}
@@ -666,7 +688,7 @@ func prepareFirstEventBatchPreparerArgs(
 		partialObjectMetadataList,
 	}
 
-	if enableExperimentalFeatures {
+	if cfg.ExperimentalFeatures {
 		objectLists = append(
 			objectLists,
 			&gatewayv1alpha3.BackendTLSPolicyList{},
@@ -674,6 +696,15 @@ func prepareFirstEventBatchPreparerArgs(
 			&gatewayv1alpha2.TLSRouteList{},
 		)
 	}
+
+	if cfg.SnippetsFilters {
+		objectLists = append(
+			objectLists,
+			&ngfAPI.SnippetsFilterList{},
+		)
+	}
+
+	gwNsName := cfg.GatewayNsName
 
 	if gwNsName == nil {
 		objectLists = append(objectLists, &gatewayv1.GatewayList{})
@@ -697,14 +728,14 @@ func setInitialConfig(
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	var config ngfAPI.NginxGateway
+	var conf ngfAPI.NginxGateway
 	// Polling to wait for CRD to exist if the Deployment is created first.
 	if err := wait.PollUntilContextCancel(
 		ctx,
 		500*time.Millisecond,
 		true, /* poll immediately */
 		func(ctx context.Context) (bool, error) {
-			if err := reader.Get(ctx, configName, &config); err != nil {
+			if err := reader.Get(ctx, configName, &conf); err != nil {
 				if !apierrors.IsNotFound(err) {
 					return false, err
 				}
@@ -718,7 +749,7 @@ func setInitialConfig(
 
 	// status is not updated until the status updater's cache is started and the
 	// resource is processed by the controller
-	return updateControlPlane(&config, logger, eventRecorder, configName, logLevelSetter)
+	return updateControlPlane(&conf, logger, eventRecorder, configName, logLevelSetter)
 }
 
 func getMetricsOptions(cfg config.MetricsConfig) metricsserver.Options {

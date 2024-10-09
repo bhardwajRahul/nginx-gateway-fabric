@@ -18,10 +18,10 @@ import (
 	"github.com/nginxinc/nginx-gateway-fabric/internal/framework/helpers"
 	"github.com/nginxinc/nginx-gateway-fabric/internal/framework/kinds"
 	staticConds "github.com/nginxinc/nginx-gateway-fabric/internal/mode/static/state/conditions"
-	"github.com/nginxinc/nginx-gateway-fabric/internal/mode/static/state/validation/validationfakes"
 )
 
 func TestBuildSectionNameRefs(t *testing.T) {
+	t.Parallel()
 	const routeNamespace = "test"
 
 	gwNsName1 := types.NamespacedName{Namespace: routeNamespace, Name: "gateway-1"}
@@ -123,6 +123,7 @@ func TestBuildSectionNameRefs(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			result, err := buildSectionNameRefs(test.parentRefs, routeNamespace, gwNsNames)
@@ -137,6 +138,7 @@ func TestBuildSectionNameRefs(t *testing.T) {
 }
 
 func TestFindGatewayForParentRef(t *testing.T) {
+	t.Parallel()
 	gwNsName1 := types.NamespacedName{Namespace: "test-1", Name: "gateway-1"}
 	gwNsName2 := types.NamespacedName{Namespace: "test-2", Name: "gateway-2"}
 
@@ -212,6 +214,7 @@ func TestFindGatewayForParentRef(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			gw, found := findGatewayForParentRef(test.ref, routeNamespace, gwNsNames)
@@ -1235,6 +1238,7 @@ func TestBindRouteToListeners(t *testing.T) {
 }
 
 func TestFindAcceptedHostnames(t *testing.T) {
+	t.Parallel()
 	var listenerHostnameFoo gatewayv1.Hostname = "foo.example.com"
 	var listenerHostnameCafe gatewayv1.Hostname = "cafe.example.com"
 	var listenerHostnameWildcard gatewayv1.Hostname = "*.example.com"
@@ -1310,6 +1314,7 @@ func TestFindAcceptedHostnames(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.msg, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 			result := findAcceptedHostnames(test.listenerHostname, test.routeHostnames)
 			g.Expect(result).To(Equal(test.expected))
@@ -1318,6 +1323,7 @@ func TestFindAcceptedHostnames(t *testing.T) {
 }
 
 func TestGetHostname(t *testing.T) {
+	t.Parallel()
 	var emptyHostname gatewayv1.Hostname
 	var hostname gatewayv1.Hostname = "example.com"
 
@@ -1345,6 +1351,7 @@ func TestGetHostname(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.msg, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 			result := getHostname(test.h)
 			g.Expect(result).To(Equal(test.expected))
@@ -1353,6 +1360,7 @@ func TestGetHostname(t *testing.T) {
 }
 
 func TestValidateHostnames(t *testing.T) {
+	t.Parallel()
 	const validHostname = "example.com"
 
 	tests := []struct {
@@ -1383,6 +1391,7 @@ func TestValidateHostnames(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			err := validateHostnames(test.hostnames, path)
@@ -1396,329 +1405,8 @@ func TestValidateHostnames(t *testing.T) {
 	}
 }
 
-func TestValidateFilterRequestHeaderModifier(t *testing.T) {
-	createAllValidValidator := func() *validationfakes.FakeHTTPFieldsValidator {
-		v := &validationfakes.FakeHTTPFieldsValidator{}
-		return v
-	}
-
-	tests := []struct {
-		filter         gatewayv1.HTTPRouteFilter
-		validator      *validationfakes.FakeHTTPFieldsValidator
-		name           string
-		expectErrCount int
-	}{
-		{
-			validator: createAllValidValidator(),
-			filter: gatewayv1.HTTPRouteFilter{
-				Type: gatewayv1.HTTPRouteFilterRequestHeaderModifier,
-				RequestHeaderModifier: &gatewayv1.HTTPHeaderFilter{
-					Set: []gatewayv1.HTTPHeader{
-						{Name: "MyBespokeHeader", Value: "my-value"},
-					},
-					Add: []gatewayv1.HTTPHeader{
-						{Name: "Accept-Encoding", Value: "gzip"},
-					},
-					Remove: []string{"Cache-Control"},
-				},
-			},
-			expectErrCount: 0,
-			name:           "valid request header modifier filter",
-		},
-		{
-			validator: createAllValidValidator(),
-			filter: gatewayv1.HTTPRouteFilter{
-				Type:                  gatewayv1.HTTPRouteFilterRequestHeaderModifier,
-				RequestHeaderModifier: nil,
-			},
-			expectErrCount: 1,
-			name:           "nil request header modifier filter",
-		},
-		{
-			validator: func() *validationfakes.FakeHTTPFieldsValidator {
-				v := createAllValidValidator()
-				v.ValidateFilterHeaderNameReturns(errors.New("Invalid header"))
-				return v
-			}(),
-			filter: gatewayv1.HTTPRouteFilter{
-				Type: gatewayv1.HTTPRouteFilterRequestHeaderModifier,
-				RequestHeaderModifier: &gatewayv1.HTTPHeaderFilter{
-					Add: []gatewayv1.HTTPHeader{
-						{Name: "$var_name", Value: "gzip"},
-					},
-				},
-			},
-			expectErrCount: 1,
-			name:           "request header modifier filter with invalid add",
-		},
-		{
-			validator: func() *validationfakes.FakeHTTPFieldsValidator {
-				v := createAllValidValidator()
-				v.ValidateFilterHeaderNameReturns(errors.New("Invalid header"))
-				return v
-			}(),
-			filter: gatewayv1.HTTPRouteFilter{
-				Type: gatewayv1.HTTPRouteFilterRequestHeaderModifier,
-				RequestHeaderModifier: &gatewayv1.HTTPHeaderFilter{
-					Remove: []string{"$var-name"},
-				},
-			},
-			expectErrCount: 1,
-			name:           "request header modifier filter with invalid remove",
-		},
-		{
-			validator: func() *validationfakes.FakeHTTPFieldsValidator {
-				v := createAllValidValidator()
-				v.ValidateFilterHeaderValueReturns(errors.New("Invalid header value"))
-				return v
-			}(),
-			filter: gatewayv1.HTTPRouteFilter{
-				Type: gatewayv1.HTTPRouteFilterRequestHeaderModifier,
-				RequestHeaderModifier: &gatewayv1.HTTPHeaderFilter{
-					Add: []gatewayv1.HTTPHeader{
-						{Name: "Accept-Encoding", Value: "yhu$"},
-					},
-				},
-			},
-			expectErrCount: 1,
-			name:           "request header modifier filter with invalid header value",
-		},
-		{
-			validator: func() *validationfakes.FakeHTTPFieldsValidator {
-				v := createAllValidValidator()
-				v.ValidateFilterHeaderValueReturns(errors.New("Invalid header value"))
-				v.ValidateFilterHeaderNameReturns(errors.New("Invalid header"))
-				return v
-			}(),
-			filter: gatewayv1.HTTPRouteFilter{
-				Type: gatewayv1.HTTPRouteFilterRequestHeaderModifier,
-				RequestHeaderModifier: &gatewayv1.HTTPHeaderFilter{
-					Set: []gatewayv1.HTTPHeader{
-						{Name: "Host", Value: "my_host"},
-					},
-					Add: []gatewayv1.HTTPHeader{
-						{Name: "}90yh&$", Value: "gzip$"},
-						{Name: "}67yh&$", Value: "compress$"},
-					},
-					Remove: []string{"Cache-Control$}"},
-				},
-			},
-			expectErrCount: 7,
-			name:           "request header modifier filter all fields invalid",
-		},
-		{
-			validator: createAllValidValidator(),
-			filter: gatewayv1.HTTPRouteFilter{
-				Type: gatewayv1.HTTPRouteFilterRequestHeaderModifier,
-				RequestHeaderModifier: &gatewayv1.HTTPHeaderFilter{
-					Set: []gatewayv1.HTTPHeader{
-						{Name: "MyBespokeHeader", Value: "my-value"},
-						{Name: "mYbespokeHEader", Value: "duplicate"},
-					},
-					Add: []gatewayv1.HTTPHeader{
-						{Name: "Accept-Encoding", Value: "gzip"},
-						{Name: "accept-encodING", Value: "gzip"},
-					},
-					Remove: []string{"Cache-Control", "cache-control"},
-				},
-			},
-			expectErrCount: 3,
-			name:           "request header modifier filter not unique names",
-		},
-	}
-
-	filterPath := field.NewPath("test")
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			g := NewWithT(t)
-			allErrs := validateFilterHeaderModifier(
-				test.validator, test.filter.RequestHeaderModifier, filterPath,
-			)
-			g.Expect(allErrs).To(HaveLen(test.expectErrCount))
-		})
-	}
-}
-
-func TestValidateFilterResponseHeaderModifier(t *testing.T) {
-	createAllValidValidator := func() *validationfakes.FakeHTTPFieldsValidator {
-		v := &validationfakes.FakeHTTPFieldsValidator{}
-		return v
-	}
-
-	tests := []struct {
-		filter         gatewayv1.HTTPRouteFilter
-		validator      *validationfakes.FakeHTTPFieldsValidator
-		name           string
-		expectErrCount int
-	}{
-		{
-			validator: createAllValidValidator(),
-			filter: gatewayv1.HTTPRouteFilter{
-				Type: gatewayv1.HTTPRouteFilterResponseHeaderModifier,
-				ResponseHeaderModifier: &gatewayv1.HTTPHeaderFilter{
-					Set: []gatewayv1.HTTPHeader{
-						{Name: "MyBespokeHeader", Value: "my-value"},
-					},
-					Add: []gatewayv1.HTTPHeader{
-						{Name: "Accept-Encoding", Value: "gzip"},
-					},
-					Remove: []string{"Cache-Control"},
-				},
-			},
-			expectErrCount: 0,
-			name:           "valid response header modifier filter",
-		},
-		{
-			validator: createAllValidValidator(),
-			filter: gatewayv1.HTTPRouteFilter{
-				Type:                   gatewayv1.HTTPRouteFilterResponseHeaderModifier,
-				ResponseHeaderModifier: nil,
-			},
-			expectErrCount: 1,
-			name:           "nil response header modifier filter",
-		},
-		{
-			validator: func() *validationfakes.FakeHTTPFieldsValidator {
-				v := createAllValidValidator()
-				v.ValidateFilterHeaderNameReturns(errors.New("Invalid header"))
-				return v
-			}(),
-			filter: gatewayv1.HTTPRouteFilter{
-				Type: gatewayv1.HTTPRouteFilterResponseHeaderModifier,
-				ResponseHeaderModifier: &gatewayv1.HTTPHeaderFilter{
-					Add: []gatewayv1.HTTPHeader{
-						{Name: "$var_name", Value: "gzip"},
-					},
-				},
-			},
-			expectErrCount: 1,
-			name:           "response header modifier filter with invalid add",
-		},
-		{
-			validator: func() *validationfakes.FakeHTTPFieldsValidator {
-				v := createAllValidValidator()
-				v.ValidateFilterHeaderNameReturns(errors.New("Invalid header"))
-				return v
-			}(),
-			filter: gatewayv1.HTTPRouteFilter{
-				Type: gatewayv1.HTTPRouteFilterResponseHeaderModifier,
-				ResponseHeaderModifier: &gatewayv1.HTTPHeaderFilter{
-					Remove: []string{"$var-name"},
-				},
-			},
-			expectErrCount: 1,
-			name:           "response header modifier filter with invalid remove",
-		},
-		{
-			validator: func() *validationfakes.FakeHTTPFieldsValidator {
-				v := createAllValidValidator()
-				v.ValidateFilterHeaderValueReturns(errors.New("Invalid header value"))
-				return v
-			}(),
-			filter: gatewayv1.HTTPRouteFilter{
-				Type: gatewayv1.HTTPRouteFilterResponseHeaderModifier,
-				ResponseHeaderModifier: &gatewayv1.HTTPHeaderFilter{
-					Add: []gatewayv1.HTTPHeader{
-						{Name: "Accept-Encoding", Value: "yhu$"},
-					},
-				},
-			},
-			expectErrCount: 1,
-			name:           "response header modifier filter with invalid header value",
-		},
-		{
-			validator: func() *validationfakes.FakeHTTPFieldsValidator {
-				v := createAllValidValidator()
-				v.ValidateFilterHeaderValueReturns(errors.New("Invalid header value"))
-				v.ValidateFilterHeaderNameReturns(errors.New("Invalid header"))
-				return v
-			}(),
-			filter: gatewayv1.HTTPRouteFilter{
-				Type: gatewayv1.HTTPRouteFilterResponseHeaderModifier,
-				ResponseHeaderModifier: &gatewayv1.HTTPHeaderFilter{
-					Set: []gatewayv1.HTTPHeader{
-						{Name: "Host", Value: "my_host"},
-					},
-					Add: []gatewayv1.HTTPHeader{
-						{Name: "}90yh&$", Value: "gzip$"},
-						{Name: "}67yh&$", Value: "compress$"},
-					},
-					Remove: []string{"Cache-Control$}"},
-				},
-			},
-			expectErrCount: 7,
-			name:           "response header modifier filter all fields invalid",
-		},
-		{
-			validator: createAllValidValidator(),
-			filter: gatewayv1.HTTPRouteFilter{
-				Type: gatewayv1.HTTPRouteFilterResponseHeaderModifier,
-				ResponseHeaderModifier: &gatewayv1.HTTPHeaderFilter{
-					Set: []gatewayv1.HTTPHeader{
-						{Name: "MyBespokeHeader", Value: "my-value"},
-						{Name: "mYbespokeHEader", Value: "duplicate"},
-					},
-					Add: []gatewayv1.HTTPHeader{
-						{Name: "Accept-Encoding", Value: "gzip"},
-						{Name: "accept-encodING", Value: "gzip"},
-					},
-					Remove: []string{"Cache-Control", "cache-control"},
-				},
-			},
-			expectErrCount: 3,
-			name:           "response header modifier filter not unique names",
-		},
-		{
-			validator: createAllValidValidator(),
-			filter: gatewayv1.HTTPRouteFilter{
-				Type: gatewayv1.HTTPRouteFilterResponseHeaderModifier,
-				ResponseHeaderModifier: &gatewayv1.HTTPHeaderFilter{
-					Set: []gatewayv1.HTTPHeader{
-						{Name: "Content-Length", Value: "163"},
-					},
-					Add: []gatewayv1.HTTPHeader{
-						{Name: "Content-Type", Value: "text/plain"},
-					},
-					Remove: []string{"X-Pad"},
-				},
-			},
-			expectErrCount: 3,
-			name:           "response header modifier filter with disallowed header name",
-		},
-		{
-			validator: createAllValidValidator(),
-			filter: gatewayv1.HTTPRouteFilter{
-				Type: gatewayv1.HTTPRouteFilterResponseHeaderModifier,
-				ResponseHeaderModifier: &gatewayv1.HTTPHeaderFilter{
-					Set: []gatewayv1.HTTPHeader{
-						{Name: "X-Accel-Redirect", Value: "/protected/iso.img"},
-					},
-					Add: []gatewayv1.HTTPHeader{
-						{Name: "X-Accel-Limit-Rate", Value: "1024"},
-					},
-					Remove: []string{"X-Accel-Charset"},
-				},
-			},
-			expectErrCount: 3,
-			name:           "response header modifier filter with disallowed header name prefix",
-		},
-	}
-
-	filterPath := field.NewPath("test")
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			g := NewWithT(t)
-			allErrs := validateFilterResponseHeaderModifier(
-				test.validator, test.filter.ResponseHeaderModifier, filterPath,
-			)
-			g.Expect(allErrs).To(HaveLen(test.expectErrCount))
-		})
-	}
-}
-
 func TestRouteKeyForKind(t *testing.T) {
+	t.Parallel()
 	nsname := types.NamespacedName{Namespace: testNs, Name: "route"}
 
 	g := NewWithT(t)
@@ -1737,6 +1425,7 @@ func TestRouteKeyForKind(t *testing.T) {
 }
 
 func TestAllowedRouteType(t *testing.T) {
+	t.Parallel()
 	test := []struct {
 		listener  *Listener
 		name      string
@@ -1788,6 +1477,7 @@ func TestAllowedRouteType(t *testing.T) {
 
 	for _, test := range test {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 			g.Expect(isRouteTypeAllowedByListener(test.listener, convertRouteType(test.routeType))).To(Equal(test.expResult))
 		})
@@ -1795,6 +1485,7 @@ func TestAllowedRouteType(t *testing.T) {
 }
 
 func TestBindL4RouteToListeners(t *testing.T) {
+	t.Parallel()
 	// we create a new listener each time because the function under test can modify it
 	createListener := func(name string) *Listener {
 		return &Listener{
@@ -2399,6 +2090,7 @@ func TestBindL4RouteToListeners(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			bindL4RouteToListeners(
@@ -2416,6 +2108,7 @@ func TestBindL4RouteToListeners(t *testing.T) {
 }
 
 func TestBuildL4RoutesForGateways_NoGateways(t *testing.T) {
+	t.Parallel()
 	g := NewWithT(t)
 
 	nsName := types.NamespacedName{Namespace: testNs, Name: "hi"}
@@ -2436,15 +2129,19 @@ func TestBuildL4RoutesForGateways_NoGateways(t *testing.T) {
 		},
 	}
 
+	refGrantResolver := newReferenceGrantResolver(nil)
+
 	g.Expect(buildL4RoutesForGateways(
 		tlsRoutes,
 		nil,
 		services,
 		nil,
+		refGrantResolver,
 	)).To(BeNil())
 }
 
 func TestTryToAttachL4RouteToListeners_NoAttachableListeners(t *testing.T) {
+	t.Parallel()
 	g := NewWithT(t)
 
 	route := &L4Route{

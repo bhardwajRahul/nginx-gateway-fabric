@@ -44,8 +44,8 @@ type ServiceResolverImpl struct {
 }
 
 // NewServiceResolverImpl creates a new instance of a ServiceResolverImpl.
-func NewServiceResolverImpl(client client.Client) *ServiceResolverImpl {
-	return &ServiceResolverImpl{client: client}
+func NewServiceResolverImpl(c client.Client) *ServiceResolverImpl {
+	return &ServiceResolverImpl{client: c}
 }
 
 // Resolve resolves a Service's NamespacedName and ServicePort to a list of Endpoints.
@@ -155,11 +155,8 @@ func resolveEndpoints(
 // If the ServicePort has a non-zero integer TargetPort, the TargetPort integer value is returned.
 // Otherwise, the ServicePort port value is returned.
 func getDefaultPort(svcPort v1.ServicePort) int32 {
-	switch svcPort.TargetPort.Type {
-	case intstr.Int:
-		if svcPort.TargetPort.IntVal != 0 {
-			return svcPort.TargetPort.IntVal
-		}
+	if svcPort.TargetPort.Type == intstr.Int && svcPort.TargetPort.IntVal != 0 {
+		return svcPort.TargetPort.IntVal
 	}
 
 	return svcPort.Port

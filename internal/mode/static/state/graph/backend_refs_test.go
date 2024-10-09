@@ -37,6 +37,7 @@ func getModifiedRef(mod func(ref gatewayv1.BackendRef) gatewayv1.BackendRef) gat
 }
 
 func TestValidateRouteBackendRef(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		expectedCondition conditions.Condition
 		name              string
@@ -85,6 +86,7 @@ func TestValidateRouteBackendRef(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 			alwaysTrueRefGrantResolver := func(_ toResource) bool { return true }
 
@@ -97,6 +99,7 @@ func TestValidateRouteBackendRef(t *testing.T) {
 }
 
 func TestValidateBackendRef(t *testing.T) {
+	t.Parallel()
 	alwaysFalseRefGrantResolver := func(_ toResource) bool { return false }
 	alwaysTrueRefGrantResolver := func(_ toResource) bool { return true }
 
@@ -204,6 +207,7 @@ func TestValidateBackendRef(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			valid, cond := validateBackendRef(test.ref, "test", test.refGrantResolver, field.NewPath("test"))
@@ -215,6 +219,7 @@ func TestValidateBackendRef(t *testing.T) {
 }
 
 func TestValidateWeight(t *testing.T) {
+	t.Parallel()
 	validWeights := []int32{0, 1, 1000000}
 	invalidWeights := []int32{-1, 1000001}
 
@@ -231,6 +236,7 @@ func TestValidateWeight(t *testing.T) {
 }
 
 func TestGetIPFamilyAndPortFromRef(t *testing.T) {
+	t.Parallel()
 	svc1 := &v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "service1",
@@ -301,6 +307,7 @@ func TestGetIPFamilyAndPortFromRef(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			svcIPFamily, servicePort, err := getIPFamilyAndPortFromRef(test.ref, test.svcNsName, services, refPath)
@@ -313,6 +320,7 @@ func TestGetIPFamilyAndPortFromRef(t *testing.T) {
 }
 
 func TestVerifyIPFamily(t *testing.T) {
+	t.Parallel()
 	test := []struct {
 		name        string
 		expErr      error
@@ -377,6 +385,7 @@ func TestVerifyIPFamily(t *testing.T) {
 
 	for _, test := range test {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 			err := verifyIPFamily(test.npCfg, test.svcIPFamily)
 			if test.expErr != nil {
@@ -389,6 +398,8 @@ func TestVerifyIPFamily(t *testing.T) {
 }
 
 func TestAddBackendRefsToRulesTest(t *testing.T) {
+	t.Parallel()
+
 	sectionNameRefs := []ParentRef{
 		{
 			Idx:     0,
@@ -446,28 +457,18 @@ func TestAddBackendRefsToRulesTest(t *testing.T) {
 			hr.Spec.Rules[idx] = RouteRule{
 				RouteBackendRefs: refs,
 				ValidMatches:     true,
-				ValidFilters:     true,
+				Filters: RouteRuleFilters{
+					Filters: []Filter{},
+					Valid:   true,
+				},
 			}
 		}
 		return hr
 	}
 
-	hrWithOneBackend := createRoute("hr1", "Service", 1, "svc1")
-	hrWithTwoBackends := createRoute("hr2", "Service", 2, "svc1")
-	hrWithTwoDiffBackends := createRoute("hr2", "Service", 2, "svc1")
-	hrWithInvalidRule := createRoute("hr3", "NotService", 1, "svc1")
-	hrWithZeroBackendRefs := createRoute("hr4", "Service", 1, "svc1")
-	hrWithZeroBackendRefs.Spec.Rules[0].RouteBackendRefs = nil
-	hrWithTwoDiffBackends.Spec.Rules[0].RouteBackendRefs[1].Name = "svc2"
-
-	hrWithOneBackendInvalid := createRoute("hr1", "Service", 1, "svc1")
-	hrWithOneBackendInvalid.Valid = false
-
-	hrWithOneBackendInvalidMatches := createRoute("hr1", "Service", 1, "svc1")
-	hrWithOneBackendInvalidMatches.Spec.Rules[0].ValidMatches = false
-
-	hrWithOneBackendInvalidFilters := createRoute("hr1", "Service", 1, "svc1")
-	hrWithOneBackendInvalidFilters.Spec.Rules[0].ValidFilters = false
+	modRoute := func(route *L7Route, mod func(*L7Route) *L7Route) *L7Route {
+		return mod(route)
+	}
 
 	getSvc := func(name string) *v1.Service {
 		return &v1.Service{
@@ -605,7 +606,7 @@ func TestAddBackendRefsToRulesTest(t *testing.T) {
 		expectedConditions  []conditions.Condition
 	}{
 		{
-			route: hrWithOneBackend,
+			route: createRoute("hr1", "Service", 1, "svc1"),
 			expectedBackendRefs: []BackendRef{
 				{
 					SvcNsName:   svc1NsName,
@@ -619,7 +620,7 @@ func TestAddBackendRefsToRulesTest(t *testing.T) {
 			name:               "normal case with one rule with one backend",
 		},
 		{
-			route: hrWithTwoBackends,
+			route: createRoute("hr2", "Service", 2, "svc1"),
 			expectedBackendRefs: []BackendRef{
 				{
 					SvcNsName:   svc1NsName,
@@ -639,7 +640,7 @@ func TestAddBackendRefsToRulesTest(t *testing.T) {
 			name:               "normal case with one rule with two backends",
 		},
 		{
-			route: hrWithTwoBackends,
+			route: createRoute("hr2", "Service", 2, "svc1"),
 			expectedBackendRefs: []BackendRef{
 				{
 					SvcNsName:        svc1NsName,
@@ -661,28 +662,37 @@ func TestAddBackendRefsToRulesTest(t *testing.T) {
 			name:               "normal case with one rule with two backends and matching policies",
 		},
 		{
-			route:               hrWithOneBackendInvalid,
+			route: modRoute(createRoute("hr1", "Service", 1, "svc1"), func(route *L7Route) *L7Route {
+				route.Valid = false
+				return route
+			}),
 			expectedBackendRefs: nil,
 			expectedConditions:  nil,
 			policies:            emptyPolicies,
 			name:                "invalid route",
 		},
 		{
-			route:               hrWithOneBackendInvalidMatches,
+			route: modRoute(createRoute("hr1", "Service", 1, "svc1"), func(route *L7Route) *L7Route {
+				route.Spec.Rules[0].ValidMatches = false
+				return route
+			}),
 			expectedBackendRefs: nil,
 			expectedConditions:  nil,
 			policies:            emptyPolicies,
 			name:                "invalid matches",
 		},
 		{
-			route:               hrWithOneBackendInvalidFilters,
+			route: modRoute(createRoute("hr1", "Service", 1, "svc1"), func(route *L7Route) *L7Route {
+				route.Spec.Rules[0].Filters = RouteRuleFilters{Valid: false}
+				return route
+			}),
 			expectedBackendRefs: nil,
 			expectedConditions:  nil,
 			policies:            emptyPolicies,
 			name:                "invalid filters",
 		},
 		{
-			route: hrWithInvalidRule,
+			route: createRoute("hr3", "NotService", 1, "svc1"),
 			expectedBackendRefs: []BackendRef{
 				{
 					Weight: 1,
@@ -697,7 +707,10 @@ func TestAddBackendRefsToRulesTest(t *testing.T) {
 			name:     "invalid backendRef",
 		},
 		{
-			route: hrWithTwoDiffBackends,
+			route: modRoute(createRoute("hr2", "Service", 2, "svc1"), func(route *L7Route) *L7Route {
+				route.Spec.Rules[0].RouteBackendRefs[1].Name = "svc2"
+				return route
+			}),
 			expectedBackendRefs: []BackendRef{
 				{
 					SvcNsName:        svc1NsName,
@@ -723,7 +736,10 @@ func TestAddBackendRefsToRulesTest(t *testing.T) {
 			name:     "invalid backendRef - backend TLS policies do not match for all backends",
 		},
 		{
-			route:               hrWithZeroBackendRefs,
+			route: modRoute(createRoute("hr4", "Service", 1, "svc1"), func(route *L7Route) *L7Route {
+				route.Spec.Rules[0].RouteBackendRefs = nil
+				return route
+			}),
 			expectedBackendRefs: nil,
 			expectedConditions:  nil,
 			name:                "zero backendRefs",
@@ -732,6 +748,8 @@ func TestAddBackendRefsToRulesTest(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			g := NewWithT(t)
 			resolver := newReferenceGrantResolver(nil)
 			addBackendRefsToRules(test.route, resolver, services, test.policies, nil)
@@ -748,6 +766,7 @@ func TestAddBackendRefsToRulesTest(t *testing.T) {
 }
 
 func TestCreateBackend(t *testing.T) {
+	t.Parallel()
 	createService := func(name string) *v1.Service {
 		return &v1.Service{
 			ObjectMeta: metav1.ObjectMeta{
@@ -1007,6 +1026,7 @@ func TestCreateBackend(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			alwaysTrueRefGrantResolver := func(_ toResource) bool { return true }
@@ -1035,6 +1055,7 @@ func TestCreateBackend(t *testing.T) {
 }
 
 func TestGetServicePort(t *testing.T) {
+	t.Parallel()
 	svc := &v1.Service{
 		Spec: v1.ServiceSpec{
 			Ports: []v1.ServicePort{
@@ -1065,6 +1086,7 @@ func TestGetServicePort(t *testing.T) {
 }
 
 func TestValidateBackendTLSPolicyMatchingAllBackends(t *testing.T) {
+	t.Parallel()
 	getBtp := func(name, caCertName string) *BackendTLSPolicy {
 		return &BackendTLSPolicy{
 			Source: &v1alpha3.BackendTLSPolicy{
@@ -1156,6 +1178,7 @@ func TestValidateBackendTLSPolicyMatchingAllBackends(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			cond := validateBackendTLSPolicyMatchingAllBackends(test.backendRefs)
@@ -1166,6 +1189,7 @@ func TestValidateBackendTLSPolicyMatchingAllBackends(t *testing.T) {
 }
 
 func TestFindBackendTLSPolicyForService(t *testing.T) {
+	t.Parallel()
 	oldCreationTimestamp := metav1.Now()
 	newCreationTimestamp := metav1.Now()
 	getBtp := func(name string, timestamp metav1.Time) *BackendTLSPolicy {
@@ -1231,6 +1255,7 @@ func TestFindBackendTLSPolicyForService(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			btp, err := findBackendTLSPolicyForService(test.backendTLSPolicies, ref.Namespace, string(ref.Name), "test")
@@ -1242,6 +1267,7 @@ func TestFindBackendTLSPolicyForService(t *testing.T) {
 }
 
 func TestGetRefGrantFromResourceForRoute(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name            string
 		routeType       RouteType
@@ -1264,6 +1290,7 @@ func TestGetRefGrantFromResourceForRoute(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 			g.Expect(getRefGrantFromResourceForRoute(test.routeType, test.ns)).To(Equal(test.expFromResource))
 		})
@@ -1271,6 +1298,7 @@ func TestGetRefGrantFromResourceForRoute(t *testing.T) {
 }
 
 func TestGetRefGrantFromResourceForRoute_Panics(t *testing.T) {
+	t.Parallel()
 	g := NewWithT(t)
 
 	get := func() {

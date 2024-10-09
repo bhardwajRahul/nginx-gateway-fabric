@@ -6,6 +6,7 @@ import (
 )
 
 func TestValidateEscapedString(t *testing.T) {
+	t.Parallel()
 	validator := func(value string) error { return validateEscapedString(value, []string{"example"}) }
 
 	testValidValuesForSimpleValidator(
@@ -25,6 +26,7 @@ func TestValidateEscapedString(t *testing.T) {
 }
 
 func TestValidateEscapedStringNoVarExpansion(t *testing.T) {
+	t.Parallel()
 	validator := func(value string) error { return validateEscapedStringNoVarExpansion(value, []string{"example"}) }
 
 	testValidValuesForSimpleValidator(
@@ -45,7 +47,8 @@ func TestValidateEscapedStringNoVarExpansion(t *testing.T) {
 }
 
 func TestValidateValidHeaderName(t *testing.T) {
-	validator := func(value string) error { return validateHeaderName(value) }
+	t.Parallel()
+	validator := validateHeaderName
 
 	testValidValuesForSimpleValidator(
 		t,

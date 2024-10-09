@@ -12,6 +12,7 @@ import (
 )
 
 func TestReferenceGrantResolver(t *testing.T) {
+	t.Parallel()
 	gwNs := "gw-ns"
 	secretNsName := types.NamespacedName{Namespace: "test", Name: "certificate"}
 
@@ -161,6 +162,7 @@ func TestReferenceGrantResolver(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.msg, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			g.Expect(resolver.refAllowed(test.to, test.from)).To(Equal(test.allowed))
@@ -169,6 +171,7 @@ func TestReferenceGrantResolver(t *testing.T) {
 }
 
 func TestToSecret(t *testing.T) {
+	t.Parallel()
 	ref := toSecret(types.NamespacedName{Namespace: "ns", Name: "secret"})
 
 	exp := toResource{
@@ -182,6 +185,7 @@ func TestToSecret(t *testing.T) {
 }
 
 func TestToService(t *testing.T) {
+	t.Parallel()
 	ref := toService(types.NamespacedName{Namespace: "ns", Name: "service"})
 
 	exp := toResource{
@@ -195,6 +199,7 @@ func TestToService(t *testing.T) {
 }
 
 func TestFromGateway(t *testing.T) {
+	t.Parallel()
 	ref := fromGateway("ns")
 
 	exp := fromResource{
@@ -208,6 +213,7 @@ func TestFromGateway(t *testing.T) {
 }
 
 func TestFromHTTPRoute(t *testing.T) {
+	t.Parallel()
 	ref := fromHTTPRoute("ns")
 
 	exp := fromResource{
@@ -221,6 +227,8 @@ func TestFromHTTPRoute(t *testing.T) {
 }
 
 func TestFromGRPCRoute(t *testing.T) {
+	t.Parallel()
+
 	ref := fromGRPCRoute("ns")
 
 	exp := fromResource{
@@ -233,16 +241,37 @@ func TestFromGRPCRoute(t *testing.T) {
 	g.Expect(ref).To(Equal(exp))
 }
 
+func TestFromTLSRoute(t *testing.T) {
+	t.Parallel()
+
+	ref := fromTLSRoute("ns")
+
+	exp := fromResource{
+		group:     v1beta1.GroupName,
+		kind:      kinds.TLSRoute,
+		namespace: "ns",
+	}
+
+	g := NewWithT(t)
+	g.Expect(ref).To(Equal(exp))
+}
+
 func TestRefAllowedFrom(t *testing.T) {
+	t.Parallel()
+
 	gwNs := "gw-ns"
 	hrNs := "hr-ns"
 	grNs := "gr-ns"
+	trNs := "tr-ns"
 
 	allowedHTTPRouteNs := "hr-allowed-ns"
 	allowedHTTPRouteNsName := types.NamespacedName{Namespace: allowedHTTPRouteNs, Name: "all-allowed-in-ns"}
 
 	allowedGRPCRouteNs := "gr-allowed-ns"
 	allowedGRPCRouteNsName := types.NamespacedName{Namespace: allowedGRPCRouteNs, Name: "all-allowed-in-ns"}
+
+	allowedTLSRouteNs := "tr-allowed-ns"
+	allowedTLSRouteNsName := types.NamespacedName{Namespace: allowedTLSRouteNs, Name: "all-allowed-in-ns"}
 
 	allowedGatewayNs := "gw-allowed-ns"
 	allowedGatewayNsName := types.NamespacedName{Namespace: allowedGatewayNs, Name: "all-allowed-in-ns"}
@@ -298,52 +327,75 @@ func TestRefAllowedFrom(t *testing.T) {
 				},
 			},
 		},
+		{Namespace: allowedTLSRouteNs, Name: "tr-2-svc"}: {
+			Spec: v1beta1.ReferenceGrantSpec{
+				From: []v1beta1.ReferenceGrantFrom{
+					{
+						Group:     v1beta1.GroupName,
+						Kind:      kinds.TLSRoute,
+						Namespace: v1beta1.Namespace(trNs),
+					},
+				},
+				To: []v1beta1.ReferenceGrantTo{
+					{
+						Kind: "Service",
+					},
+				},
+			},
+		},
 	}
-
-	resolver := newReferenceGrantResolver(refGrants)
-	refAllowedFromGRPCRoute := resolver.refAllowedFrom(fromGRPCRoute(grNs))
-	refAllowedFromHTTPRoute := resolver.refAllowedFrom(fromHTTPRoute(hrNs))
-	refAllowedFromGateway := resolver.refAllowedFrom(fromGateway(gwNs))
 
 	tests := []struct {
 		name           string
-		refAllowedFrom func(resource toResource) bool
+		refAllowedFrom fromResource
 		toResource     toResource
 		expAllowed     bool
 	}{
 		{
 			name:           "ref allowed from gateway to secret",
-			refAllowedFrom: refAllowedFromGateway,
+			refAllowedFrom: fromGateway(gwNs),
 			toResource:     toSecret(allowedGatewayNsName),
 			expAllowed:     true,
 		},
 		{
 			name:           "ref not allowed from gateway to secret",
-			refAllowedFrom: refAllowedFromGateway,
+			refAllowedFrom: fromGateway(gwNs),
 			toResource:     toSecret(notAllowedNsName),
 			expAllowed:     false,
 		},
 		{
 			name:           "ref allowed from httproute to service",
-			refAllowedFrom: refAllowedFromHTTPRoute,
+			refAllowedFrom: fromHTTPRoute(hrNs),
 			toResource:     toService(allowedHTTPRouteNsName),
 			expAllowed:     true,
 		},
 		{
 			name:           "ref not allowed from httproute to service",
-			refAllowedFrom: refAllowedFromHTTPRoute,
+			refAllowedFrom: fromHTTPRoute(hrNs),
 			toResource:     toService(notAllowedNsName),
 			expAllowed:     false,
 		},
 		{
 			name:           "ref allowed from grpcroute to service",
-			refAllowedFrom: refAllowedFromGRPCRoute,
+			refAllowedFrom: fromGRPCRoute(grNs),
 			toResource:     toService(allowedGRPCRouteNsName),
 			expAllowed:     true,
 		},
 		{
 			name:           "ref not allowed from grpcroute to service",
-			refAllowedFrom: refAllowedFromGRPCRoute,
+			refAllowedFrom: fromGRPCRoute(grNs),
+			toResource:     toService(notAllowedNsName),
+			expAllowed:     false,
+		},
+		{
+			name:           "ref allowed from tlsroute to service",
+			refAllowedFrom: fromTLSRoute(trNs),
+			toResource:     toService(allowedTLSRouteNsName),
+			expAllowed:     true,
+		},
+		{
+			name:           "ref not allowed from tlsroute to service",
+			refAllowedFrom: fromTLSRoute(trNs),
 			toResource:     toService(notAllowedNsName),
 			expAllowed:     false,
 		},
@@ -351,8 +403,13 @@ func TestRefAllowedFrom(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			resolver := newReferenceGrantResolver(refGrants)
+			refAllowed := resolver.refAllowedFrom(test.refAllowedFrom)
+
 			g := NewWithT(t)
-			g.Expect(test.refAllowedFrom(test.toResource)).To(Equal(test.expAllowed))
+			g.Expect(refAllowed(test.toResource)).To(Equal(test.expAllowed))
 		})
 	}
 }

@@ -78,7 +78,6 @@ var _ = Describe("Collector", Ordered, func() {
 		dataCollector           telemetry.DataCollector
 		version                 string
 		expData                 telemetry.Data
-		ctx                     context.Context
 		podNSName               types.NamespacedName
 		ngfPod                  *v1.Pod
 		ngfReplicaSet           *appsv1.ReplicaSet
@@ -90,7 +89,6 @@ var _ = Describe("Collector", Ordered, func() {
 	)
 
 	BeforeAll(func() {
-		ctx = context.Background()
 		version = "1.1"
 
 		ngfPod = &v1.Pod{
@@ -230,7 +228,7 @@ var _ = Describe("Collector", Ordered, func() {
 
 	Describe("Normal case", func() {
 		When("collecting telemetry data", func() {
-			It("collects all fields", func() {
+			It("collects all fields", func(ctx SpecContext) {
 				nodes := &v1.NodeList{
 					Items: []v1.Node{
 						{
@@ -286,6 +284,11 @@ var _ = Describe("Collector", Ordered, func() {
 						{NamespacedName: types.NamespacedName{Namespace: "test", Name: "hr-3"}}: {RouteType: graph.RouteTypeHTTP},
 						{NamespacedName: types.NamespacedName{Namespace: "test", Name: "gr-1"}}: {RouteType: graph.RouteTypeGRPC},
 						{NamespacedName: types.NamespacedName{Namespace: "test", Name: "gr-2"}}: {RouteType: graph.RouteTypeGRPC},
+					},
+					L4Routes: map[graph.L4RouteKey]*graph.L4Route{
+						{NamespacedName: types.NamespacedName{Namespace: "test", Name: "tr-1"}}: {},
+						{NamespacedName: types.NamespacedName{Namespace: "test", Name: "tr-2"}}: {},
+						{NamespacedName: types.NamespacedName{Namespace: "test", Name: "tr-3"}}: {},
 					},
 					ReferencedSecrets: map[types.NamespacedName]*graph.Secret{
 						client.ObjectKeyFromObject(secret1): {
@@ -366,6 +369,7 @@ var _ = Describe("Collector", Ordered, func() {
 					GatewayCount:                             3,
 					GatewayClassCount:                        3,
 					HTTPRouteCount:                           3,
+					TLSRouteCount:                            3,
 					SecretCount:                              3,
 					ServiceCount:                             3,
 					EndpointCount:                            4,
@@ -390,15 +394,16 @@ var _ = Describe("Collector", Ordered, func() {
 	Describe("cluster information collector", func() {
 		When("collecting cluster platform", func() {
 			When("it encounters an error while collecting data", func() {
-				It("should error if the kubernetes client errored when getting the NamespaceList", func() {
+				It("should error if the kubernetes client errored when getting the NamespaceList", func(ctx SpecContext) {
 					expectedError := errors.New("failed to get NamespaceList")
 					k8sClientReader.ListCalls(mergeListCallsWithBase(
 						func(_ context.Context, object client.ObjectList, _ ...client.ListOption) error {
 							switch object.(type) {
 							case *v1.NamespaceList:
 								return expectedError
+							default:
+								return nil
 							}
-							return nil
 						}))
 
 					_, err := dataCollector.Collect(ctx)
@@ -409,15 +414,16 @@ var _ = Describe("Collector", Ordered, func() {
 
 		When("collecting clusterID data", func() {
 			When("it encounters an error while collecting data", func() {
-				It("should error if the kubernetes client errored when getting the namespace", func() {
+				It("should error if the kubernetes client errored when getting the namespace", func(ctx SpecContext) {
 					expectedError := errors.New("there was an error getting clusterID")
 					k8sClientReader.GetCalls(mergeGetCallsWithBase(
 						func(_ context.Context, _ types.NamespacedName, object client.Object, _ ...client.GetOption) error {
 							switch object.(type) {
 							case *v1.Namespace:
 								return expectedError
+							default:
+								return nil
 							}
-							return nil
 						}))
 
 					_, err := dataCollector.Collect(ctx)
@@ -428,7 +434,7 @@ var _ = Describe("Collector", Ordered, func() {
 
 		When("collecting cluster version data", func() {
 			When("the kubelet version is missing", func() {
-				It("should be report 'unknown'", func() {
+				It("should be report 'unknown'", func(ctx SpecContext) {
 					nodes := &v1.NodeList{
 						Items: []v1.Node{
 							{
@@ -457,7 +463,7 @@ var _ = Describe("Collector", Ordered, func() {
 
 	Describe("node count collector", func() {
 		When("collecting node count data", func() {
-			It("collects correct data for one node", func() {
+			It("collects correct data for one node", func(ctx SpecContext) {
 				k8sClientReader.ListCalls(createListCallsFunc(nodeList))
 
 				expData.Data.ClusterNodeCount = 1
@@ -469,7 +475,7 @@ var _ = Describe("Collector", Ordered, func() {
 			})
 
 			When("it encounters an error while collecting data", func() {
-				It("should error when there are no nodes", func() {
+				It("should error when there are no nodes", func(ctx SpecContext) {
 					expectedError := errors.New("failed to collect cluster information: NodeList length is zero")
 					k8sClientReader.ListCalls(createListCallsFunc(nil))
 
@@ -478,15 +484,16 @@ var _ = Describe("Collector", Ordered, func() {
 					Expect(err).To(MatchError(expectedError))
 				})
 
-				It("should error on kubernetes client api errors", func() {
+				It("should error on kubernetes client api errors", func(ctx SpecContext) {
 					expectedError := errors.New("failed to get NodeList")
 					k8sClientReader.ListCalls(
 						func(_ context.Context, object client.ObjectList, _ ...client.ListOption) error {
 							switch object.(type) {
 							case *v1.NodeList:
 								return expectedError
+							default:
+								return nil
 							}
-							return nil
 						})
 
 					_, err := dataCollector.Collect(ctx)
@@ -511,6 +518,9 @@ var _ = Describe("Collector", Ordered, func() {
 				Gateway:      &graph.Gateway{},
 				Routes: map[graph.RouteKey]*graph.L7Route{
 					{NamespacedName: types.NamespacedName{Namespace: "test", Name: "hr-1"}}: {RouteType: graph.RouteTypeHTTP},
+				},
+				L4Routes: map[graph.L4RouteKey]*graph.L4Route{
+					{NamespacedName: types.NamespacedName{Namespace: "test", Name: "tr-1"}}: {},
 				},
 				ReferencedSecrets: map[types.NamespacedName]*graph.Secret{
 					client.ObjectKeyFromObject(secret): {
@@ -584,7 +594,7 @@ var _ = Describe("Collector", Ordered, func() {
 		})
 
 		When("collecting NGF resource counts", func() {
-			It("collects correct data for graph with no resources", func() {
+			It("collects correct data for graph with no resources", func(ctx SpecContext) {
 				fakeGraphGetter.GetLatestGraphReturns(&graph.Graph{})
 				fakeConfigurationGetter.GetLatestConfigurationReturns(&dataplane.Configuration{})
 
@@ -596,7 +606,7 @@ var _ = Describe("Collector", Ordered, func() {
 				Expect(expData).To(Equal(data))
 			})
 
-			It("collects correct data for graph with one of each resource", func() {
+			It("collects correct data for graph with one of each resource", func(ctx SpecContext) {
 				fakeGraphGetter.GetLatestGraphReturns(graph1)
 				fakeConfigurationGetter.GetLatestConfigurationReturns(config1)
 
@@ -604,6 +614,7 @@ var _ = Describe("Collector", Ordered, func() {
 					GatewayCount:                             1,
 					GatewayClassCount:                        1,
 					HTTPRouteCount:                           1,
+					TLSRouteCount:                            1,
 					SecretCount:                              1,
 					ServiceCount:                             1,
 					EndpointCount:                            1,
@@ -619,13 +630,14 @@ var _ = Describe("Collector", Ordered, func() {
 				Expect(expData).To(Equal(data))
 			})
 
-			It("ignores invalid and empty upstreams", func() {
+			It("ignores invalid and empty upstreams", func(ctx SpecContext) {
 				fakeGraphGetter.GetLatestGraphReturns(&graph.Graph{})
 				fakeConfigurationGetter.GetLatestConfigurationReturns(invalidUpstreamsConfig)
 				expData.NGFResourceCounts = telemetry.NGFResourceCounts{
 					GatewayCount:                             0,
 					GatewayClassCount:                        0,
 					HTTPRouteCount:                           0,
+					TLSRouteCount:                            0,
 					SecretCount:                              0,
 					ServiceCount:                             0,
 					EndpointCount:                            0,
@@ -648,7 +660,7 @@ var _ = Describe("Collector", Ordered, func() {
 					fakeGraphGetter.GetLatestGraphReturns(&graph.Graph{})
 					fakeConfigurationGetter.GetLatestConfigurationReturns(&dataplane.Configuration{})
 				})
-				It("should error on nil latest graph", func() {
+				It("should error on nil latest graph", func(ctx SpecContext) {
 					expectedError := errors.New("latest graph cannot be nil")
 					fakeGraphGetter.GetLatestGraphReturns(nil)
 
@@ -656,7 +668,7 @@ var _ = Describe("Collector", Ordered, func() {
 					Expect(err).To(MatchError(expectedError))
 				})
 
-				It("should error on nil latest configuration", func() {
+				It("should error on nil latest configuration", func(ctx SpecContext) {
 					expectedError := errors.New("latest configuration cannot be nil")
 					fakeConfigurationGetter.GetLatestConfigurationReturns(nil)
 
@@ -670,15 +682,16 @@ var _ = Describe("Collector", Ordered, func() {
 	Describe("NGF replica count collector", func() {
 		When("collecting NGF replica count", func() {
 			When("it encounters an error while collecting data", func() {
-				It("should error if the kubernetes client errored when getting the Pod", func() {
+				It("should error if the kubernetes client errored when getting the Pod", func(ctx SpecContext) {
 					expectedErr := errors.New("there was an error getting the Pod")
 					k8sClientReader.GetCalls(mergeGetCallsWithBase(
 						func(_ context.Context, _ client.ObjectKey, object client.Object, _ ...client.GetOption) error {
 							switch object.(type) {
 							case *v1.Pod:
 								return expectedErr
+							default:
+								return nil
 							}
-							return nil
 						},
 					))
 
@@ -686,7 +699,7 @@ var _ = Describe("Collector", Ordered, func() {
 					Expect(err).To(MatchError(expectedErr))
 				})
 
-				It("should error if the Pod's owner reference is nil", func() {
+				It("should error if the Pod's owner reference is nil", func(ctx SpecContext) {
 					expectedErr := errors.New("expected one owner reference of the NGF Pod, got 0")
 					k8sClientReader.GetCalls(mergeGetCallsWithBase(createGetCallsFunc(
 						&v1.Pod{
@@ -701,7 +714,7 @@ var _ = Describe("Collector", Ordered, func() {
 					Expect(err).To(MatchError(expectedErr))
 				})
 
-				It("should error if the Pod has multiple owner references", func() {
+				It("should error if the Pod has multiple owner references", func(ctx SpecContext) {
 					expectedErr := errors.New("expected one owner reference of the NGF Pod, got 2")
 					k8sClientReader.GetCalls(mergeGetCallsWithBase(createGetCallsFunc(
 						&v1.Pod{
@@ -725,7 +738,7 @@ var _ = Describe("Collector", Ordered, func() {
 					Expect(err).To(MatchError(expectedErr))
 				})
 
-				It("should error if the Pod's owner reference is not a ReplicaSet", func() {
+				It("should error if the Pod's owner reference is not a ReplicaSet", func(ctx SpecContext) {
 					expectedErr := errors.New("expected pod owner reference to be ReplicaSet, got Deployment")
 					k8sClientReader.GetCalls(mergeGetCallsWithBase(createGetCallsFunc(
 						&v1.Pod{
@@ -746,7 +759,7 @@ var _ = Describe("Collector", Ordered, func() {
 					Expect(err).To(MatchError(expectedErr))
 				})
 
-				It("should error if the replica set's replicas is nil", func() {
+				It("should error if the replica set's replicas is nil", func(ctx SpecContext) {
 					expectedErr := errors.New("replica set replicas was nil")
 					k8sClientReader.GetCalls(mergeGetCallsWithBase(createGetCallsFunc(
 						&appsv1.ReplicaSet{
@@ -760,15 +773,16 @@ var _ = Describe("Collector", Ordered, func() {
 					Expect(err).To(MatchError(expectedErr))
 				})
 
-				It("should error if the kubernetes client errored when getting the ReplicaSet", func() {
+				It("should error if the kubernetes client errored when getting the ReplicaSet", func(ctx SpecContext) {
 					expectedErr := errors.New("there was an error getting the ReplicaSet")
 					k8sClientReader.GetCalls(mergeGetCallsWithBase(
 						func(_ context.Context, _ client.ObjectKey, object client.Object, _ ...client.GetOption) error {
 							switch object.(type) {
 							case *appsv1.ReplicaSet:
 								return expectedErr
+							default:
+								return nil
 							}
-							return nil
 						}))
 
 					_, err := dataCollector.Collect(ctx)
@@ -781,7 +795,7 @@ var _ = Describe("Collector", Ordered, func() {
 	Describe("DeploymentID collector", func() {
 		When("collecting deploymentID", func() {
 			When("it encounters an error while collecting data", func() {
-				It("should error if the replicaSet's owner reference is nil", func() {
+				It("should error if the replicaSet's owner reference is nil", func(ctx SpecContext) {
 					replicas := int32(1)
 					k8sClientReader.GetCalls(mergeGetCallsWithBase(createGetCallsFunc(
 						&appsv1.ReplicaSet{
@@ -796,7 +810,7 @@ var _ = Describe("Collector", Ordered, func() {
 					Expect(err).To(MatchError(expectedErr))
 				})
 
-				It("should error if the replicaSet's owner reference kind is not deployment", func() {
+				It("should error if the replicaSet's owner reference kind is not deployment", func(ctx SpecContext) {
 					replicas := int32(1)
 					k8sClientReader.GetCalls(mergeGetCallsWithBase(createGetCallsFunc(
 						&appsv1.ReplicaSet{
@@ -818,7 +832,7 @@ var _ = Describe("Collector", Ordered, func() {
 					_, err := dataCollector.Collect(ctx)
 					Expect(err).To(MatchError(expectedErr))
 				})
-				It("should error if the replicaSet's owner reference has empty UID", func() {
+				It("should error if the replicaSet's owner reference has empty UID", func(ctx SpecContext) {
 					replicas := int32(1)
 					k8sClientReader.GetCalls(mergeGetCallsWithBase(createGetCallsFunc(
 						&appsv1.ReplicaSet{

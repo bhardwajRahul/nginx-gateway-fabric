@@ -23,6 +23,7 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -30,8 +31,6 @@ import (
 	"reflect"
 	"strings"
 	"time"
-
-	"k8s.io/client-go/util/retry"
 
 	apps "k8s.io/api/apps/v1"
 	core "k8s.io/api/core/v1"
@@ -42,6 +41,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/remotecommand"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	v1 "sigs.k8s.io/gateway-api/apis/v1"
 )
@@ -50,6 +52,7 @@ import (
 type ResourceManager struct {
 	K8sClient      client.Client
 	ClientGoClient kubernetes.Interface // used when k8sClient is not enough
+	K8sConfig      *rest.Config
 	FS             embed.FS
 	TimeoutConfig  TimeoutConfig
 }
@@ -81,7 +84,10 @@ func (rm *ResourceManager) Apply(resources []client.Object) error {
 			obj = unstructuredObj.DeepCopy()
 		} else {
 			t := reflect.TypeOf(resource).Elem()
-			obj = reflect.New(t).Interface().(client.Object)
+			obj, ok = reflect.New(t).Interface().(client.Object)
+			if !ok {
+				panic("failed to cast object to client.Object")
+			}
 		}
 
 		if err := rm.K8sClient.Get(ctx, client.ObjectKeyFromObject(resource), obj); err != nil {
@@ -115,6 +121,20 @@ func (rm *ResourceManager) Apply(resources []client.Object) error {
 
 // ApplyFromFiles creates or updates Kubernetes resources defined within the provided YAML files.
 func (rm *ResourceManager) ApplyFromFiles(files []string, namespace string) error {
+	for _, file := range files {
+		data, err := rm.GetFileContents(file)
+		if err != nil {
+			return err
+		}
+
+		if err = rm.ApplyFromBuffer(data, namespace); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (rm *ResourceManager) ApplyFromBuffer(buffer *bytes.Buffer, namespace string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), rm.TimeoutConfig.CreateTimeout)
 	defer cancel()
 
@@ -150,15 +170,15 @@ func (rm *ResourceManager) ApplyFromFiles(files []string, namespace string) erro
 		return nil
 	}
 
-	return rm.readAndHandleObjects(handlerFunc, files)
+	return rm.readAndHandleObject(handlerFunc, buffer)
 }
 
 // Delete deletes Kubernetes resources defined as Go objects.
 func (rm *ResourceManager) Delete(resources []client.Object, opts ...client.DeleteOption) error {
-	for _, resource := range resources {
-		ctx, cancel := context.WithTimeout(context.Background(), rm.TimeoutConfig.DeleteTimeout)
-		defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), rm.TimeoutConfig.DeleteTimeout)
+	defer cancel()
 
+	for _, resource := range resources {
 		if err := rm.K8sClient.Delete(ctx, resource, opts...); err != nil && !apierrors.IsNotFound(err) {
 			return fmt.Errorf("error deleting resource: %w", err)
 		}
@@ -213,36 +233,41 @@ func (rm *ResourceManager) DeleteFromFiles(files []string, namespace string) err
 		return nil
 	}
 
-	return rm.readAndHandleObjects(handlerFunc, files)
-}
-
-func (rm *ResourceManager) readAndHandleObjects(
-	handle func(unstructured.Unstructured) error,
-	files []string,
-) error {
 	for _, file := range files {
 		data, err := rm.GetFileContents(file)
 		if err != nil {
 			return err
 		}
 
-		decoder := yaml.NewYAMLOrJSONDecoder(data, 4096)
-		for {
-			obj := unstructured.Unstructured{}
-			if err := decoder.Decode(&obj); err != nil {
-				if errors.Is(err, io.EOF) {
-					break
-				}
-				return fmt.Errorf("error decoding resource: %w", err)
-			}
+		if err = rm.readAndHandleObject(handlerFunc, data); err != nil {
+			return err
+		}
+	}
 
-			if len(obj.Object) == 0 {
-				continue
-			}
+	return nil
+}
 
-			if err := handle(obj); err != nil {
-				return err
+func (rm *ResourceManager) readAndHandleObject(
+	handle func(unstructured.Unstructured) error,
+	data *bytes.Buffer,
+) error {
+	decoder := yaml.NewYAMLOrJSONDecoder(data, 4096)
+
+	for {
+		obj := unstructured.Unstructured{}
+		if err := decoder.Decode(&obj); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
 			}
+			return fmt.Errorf("error decoding resource: %w", err)
+		}
+
+		if len(obj.Object) == 0 {
+			continue
+		}
+
+		if err := handle(obj); err != nil {
+			return err
 		}
 	}
 
@@ -789,4 +814,56 @@ func (rm *ResourceManager) WaitForGatewayObservedGeneration(
 			return false, nil
 		},
 	)
+}
+
+// GetNginxConfig uses crossplane to get the nginx configuration and convert it to JSON.
+func (rm *ResourceManager) GetNginxConfig(ngfPodName, namespace string) (*Payload, error) {
+	if err := injectCrossplaneContainer(
+		rm.ClientGoClient,
+		rm.TimeoutConfig.UpdateTimeout,
+		ngfPodName,
+		namespace,
+	); err != nil {
+		return nil, err
+	}
+
+	exec, err := createCrossplaneExecutor(rm.ClientGoClient, rm.K8sConfig, ngfPodName, namespace)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), rm.TimeoutConfig.RequestTimeout)
+	defer cancel()
+
+	buf := &bytes.Buffer{}
+	errBuf := &bytes.Buffer{}
+
+	if err := wait.PollUntilContextCancel(
+		ctx,
+		500*time.Millisecond,
+		true, /* poll immediately */
+		func(ctx context.Context) (bool, error) {
+			if err := exec.StreamWithContext(ctx, remotecommand.StreamOptions{
+				Stdout: buf,
+				Stderr: errBuf,
+			}); err != nil {
+				return false, nil //nolint:nilerr // we want to retry if there's an error
+			}
+
+			if errBuf.String() != "" {
+				return false, nil
+			}
+
+			return true, nil
+		},
+	); err != nil {
+		return nil, fmt.Errorf("could not connect to ephemeral container: %w", err)
+	}
+
+	conf := &Payload{}
+	if err := json.Unmarshal(buf.Bytes(), conf); err != nil {
+		return nil, fmt.Errorf("error unmarshaling nginx config: %w", err)
+	}
+
+	return conf, nil
 }

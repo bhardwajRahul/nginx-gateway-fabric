@@ -10,6 +10,7 @@ import (
 )
 
 func TestAnnotationPredicate_Create(t *testing.T) {
+	t.Parallel()
 	annotation := "test"
 
 	tests := []struct {
@@ -59,6 +60,7 @@ func TestAnnotationPredicate_Create(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 			update := p.Create(test.event)
 			g.Expect(update).To(Equal(test.expUpdate))
@@ -67,6 +69,7 @@ func TestAnnotationPredicate_Create(t *testing.T) {
 }
 
 func TestAnnotationPredicate_Update(t *testing.T) {
+	t.Parallel()
 	annotation := "test"
 
 	tests := []struct {
@@ -212,6 +215,7 @@ func TestAnnotationPredicate_Update(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 			update := p.Update(test.event)
 			g.Expect(update).To(Equal(test.expUpdate))

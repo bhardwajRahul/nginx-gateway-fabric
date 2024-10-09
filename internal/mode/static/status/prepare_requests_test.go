@@ -212,6 +212,7 @@ var (
 )
 
 func TestBuildHTTPRouteStatuses(t *testing.T) {
+	t.Parallel()
 	hrValid := &v1.HTTPRoute{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace:  "test",
@@ -291,6 +292,7 @@ func TestBuildHTTPRouteStatuses(t *testing.T) {
 }
 
 func TestBuildGRPCRouteStatuses(t *testing.T) {
+	t.Parallel()
 	grValid := &v1.GRPCRoute{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace:  "test",
@@ -369,6 +371,7 @@ func TestBuildGRPCRouteStatuses(t *testing.T) {
 }
 
 func TestBuildTLSRouteStatuses(t *testing.T) {
+	t.Parallel()
 	trValid := &v1alpha2.TLSRoute{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace:  "test",
@@ -445,6 +448,7 @@ func TestBuildTLSRouteStatuses(t *testing.T) {
 }
 
 func TestBuildRouteStatusesNginxErr(t *testing.T) {
+	t.Parallel()
 	const gatewayCtlrName = "controller"
 
 	hr1 := &v1.HTTPRoute{
@@ -546,6 +550,7 @@ func TestBuildRouteStatusesNginxErr(t *testing.T) {
 }
 
 func TestBuildGatewayClassStatuses(t *testing.T) {
+	t.Parallel()
 	transitionTime := helpers.PrepareTimeForFakeClient(metav1.Now())
 
 	tests := []struct {
@@ -638,6 +643,7 @@ func TestBuildGatewayClassStatuses(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			k8sClient := createK8sClientFor(&v1.GatewayClass{})
@@ -676,6 +682,7 @@ func TestBuildGatewayClassStatuses(t *testing.T) {
 }
 
 func TestBuildGatewayStatuses(t *testing.T) {
+	t.Parallel()
 	createGateway := func() *v1.Gateway {
 		return &v1.Gateway{
 			ObjectMeta: metav1.ObjectMeta{
@@ -1131,6 +1138,7 @@ func TestBuildGatewayStatuses(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			k8sClient := createK8sClientFor(&v1.Gateway{})
@@ -1176,6 +1184,7 @@ func TestBuildGatewayStatuses(t *testing.T) {
 }
 
 func TestBuildBackendTLSPolicyStatuses(t *testing.T) {
+	t.Parallel()
 	const gatewayCtlrName = "controller"
 
 	transitionTime := helpers.PrepareTimeForFakeClient(metav1.Now())
@@ -1357,6 +1366,7 @@ func TestBuildBackendTLSPolicyStatuses(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			k8sClient := createK8sClientFor(&v1alpha3.BackendTLSPolicy{})
@@ -1386,6 +1396,7 @@ func TestBuildBackendTLSPolicyStatuses(t *testing.T) {
 }
 
 func TestBuildNginxGatewayStatus(t *testing.T) {
+	t.Parallel()
 	transitionTime := helpers.PrepareTimeForFakeClient(metav1.Now())
 
 	tests := []struct {
@@ -1449,6 +1460,7 @@ func TestBuildNginxGatewayStatus(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			k8sClient := createK8sClientFor(&ngfAPI.NginxGateway{})
@@ -1479,6 +1491,7 @@ func TestBuildNginxGatewayStatus(t *testing.T) {
 }
 
 func TestBuildNGFPolicyStatuses(t *testing.T) {
+	t.Parallel()
 	const gatewayCtlrName = "controller"
 
 	transitionTime := helpers.PrepareTimeForFakeClient(metav1.Now())
@@ -1741,6 +1754,7 @@ func TestBuildNGFPolicyStatuses(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			k8sClient := createK8sClientFor(&ngfAPI.ClientSettingsPolicy{})
@@ -1764,6 +1778,136 @@ func TestBuildNGFPolicyStatuses(t *testing.T) {
 				err := k8sClient.Get(context.Background(), nsname, &pol)
 				g.Expect(err).ToNot(HaveOccurred())
 				g.Expect(helpers.Diff(expected, pol.Status)).To(BeEmpty())
+			}
+		})
+	}
+}
+
+func TestBuildSnippetsFilterStatuses(t *testing.T) {
+	transitionTime := helpers.PrepareTimeForFakeClient(metav1.Now())
+	const gatewayCtlrName = "controller"
+
+	validSnippetsFilter := &graph.SnippetsFilter{
+		Source: &ngfAPI.SnippetsFilter{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       "valid-snippet",
+				Namespace:  "test",
+				Generation: 1,
+			},
+			Spec: ngfAPI.SnippetsFilterSpec{
+				Snippets: []ngfAPI.Snippet{
+					{
+						Context: ngfAPI.NginxContextHTTP,
+						Value:   "proxy_buffer on;",
+					},
+				},
+			},
+		},
+		Valid: true,
+	}
+
+	invalidSnippetsFilter := &graph.SnippetsFilter{
+		Source: &ngfAPI.SnippetsFilter{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       "invalid-snippet",
+				Namespace:  "test",
+				Generation: 1,
+			},
+		},
+		Conditions: []conditions.Condition{staticConds.NewSnippetsFilterInvalid("invalid snippetsFilter")},
+		Valid:      false,
+	}
+
+	tests := []struct {
+		snippetsFilters map[types.NamespacedName]*graph.SnippetsFilter
+		expected        map[types.NamespacedName]ngfAPI.SnippetsFilterStatus
+		name            string
+		expectedReqs    int
+	}{
+		{
+			name:         "nil snippetsFilters",
+			expectedReqs: 0,
+			expected:     map[types.NamespacedName]ngfAPI.SnippetsFilterStatus{},
+		},
+		{
+			name: "valid snippetsFilter",
+			snippetsFilters: map[types.NamespacedName]*graph.SnippetsFilter{
+				{Namespace: "test", Name: "valid-snippet"}: validSnippetsFilter,
+			},
+			expectedReqs: 1,
+			expected: map[types.NamespacedName]ngfAPI.SnippetsFilterStatus{
+				{Namespace: "test", Name: "valid-snippet"}: {
+					Controllers: []ngfAPI.ControllerStatus{
+						{
+							Conditions: []metav1.Condition{
+								{
+									Type:               string(ngfAPI.SnippetsFilterConditionTypeAccepted),
+									Status:             metav1.ConditionTrue,
+									ObservedGeneration: 1,
+									LastTransitionTime: transitionTime,
+									Reason:             string(ngfAPI.SnippetsFilterConditionReasonAccepted),
+									Message:            "SnippetsFilter is accepted",
+								},
+							},
+							ControllerName: gatewayCtlrName,
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "invalid snippetsFilter",
+			snippetsFilters: map[types.NamespacedName]*graph.SnippetsFilter{
+				{Namespace: "test", Name: "invalid-snippet"}: invalidSnippetsFilter,
+			},
+			expectedReqs: 1,
+			expected: map[types.NamespacedName]ngfAPI.SnippetsFilterStatus{
+				{Namespace: "test", Name: "invalid-snippet"}: {
+					Controllers: []ngfAPI.ControllerStatus{
+						{
+							Conditions: []metav1.Condition{
+								{
+									Type:               string(ngfAPI.SnippetsFilterConditionTypeAccepted),
+									Status:             metav1.ConditionFalse,
+									ObservedGeneration: 1,
+									LastTransitionTime: transitionTime,
+									Reason:             string(ngfAPI.SnippetsFilterConditionReasonInvalid),
+									Message:            "invalid snippetsFilter",
+								},
+							},
+							ControllerName: gatewayCtlrName,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			g := NewWithT(t)
+
+			k8sClient := createK8sClientFor(&ngfAPI.SnippetsFilter{})
+
+			for _, snippets := range test.snippetsFilters {
+				err := k8sClient.Create(context.Background(), snippets.Source)
+				g.Expect(err).ToNot(HaveOccurred())
+			}
+
+			updater := statusFramework.NewUpdater(k8sClient, zap.New())
+
+			reqs := PrepareSnippetsFilterRequests(test.snippetsFilters, transitionTime, gatewayCtlrName)
+
+			g.Expect(reqs).To(HaveLen(test.expectedReqs))
+
+			updater.Update(context.Background(), reqs...)
+
+			for nsname, expected := range test.expected {
+				var snippetsFilter ngfAPI.SnippetsFilter
+
+				err := k8sClient.Get(context.Background(), nsname, &snippetsFilter)
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(helpers.Diff(expected, snippetsFilter.Status)).To(BeEmpty())
 			}
 		})
 	}

@@ -2,27 +2,44 @@ package config
 
 const serversTemplateText = `
 js_preload_object matches from /etc/nginx/conf.d/matches.json;
+
 {{- range $s := .Servers -}}
     {{ if $s.IsDefaultSSL -}}
 server {
         {{- if or ($.IPFamily.IPv4) ($s.IsSocket) }}
-    listen {{ $s.Listen }} ssl default_server;
+    listen {{ $s.Listen }} ssl default_server{{ $.RewriteClientIP.ProxyProtocol }};
         {{- end }}
         {{- if and ($.IPFamily.IPv6) (not $s.IsSocket) }}
-    listen [::]:{{ $s.Listen }} ssl default_server;
+    listen [::]:{{ $s.Listen }} ssl default_server{{ $.RewriteClientIP.ProxyProtocol }};
         {{- end }}
-
     ssl_reject_handshake on;
+        {{- range $address := $.RewriteClientIP.RealIPFrom }}
+    set_real_ip_from {{ $address }};
+        {{- end}}
+        {{- if $.RewriteClientIP.RealIPHeader}}
+    real_ip_header {{ $.RewriteClientIP.RealIPHeader }};
+        {{- end}}
+        {{- if $.RewriteClientIP.Recursive}}
+    real_ip_recursive on;
+        {{- end }}
 }
     {{- else if $s.IsDefaultHTTP }}
 server {
         {{- if $.IPFamily.IPv4 }}
-    listen {{ $s.Listen }} default_server;
+    listen {{ $s.Listen }} default_server{{ $.RewriteClientIP.ProxyProtocol }};
         {{- end }}
         {{- if $.IPFamily.IPv6 }}
-    listen [::]:{{ $s.Listen }} default_server;
+    listen [::]:{{ $s.Listen }} default_server{{ $.RewriteClientIP.ProxyProtocol }};
         {{- end }}
-
+        {{- range $address := $.RewriteClientIP.RealIPFrom }}
+    set_real_ip_from {{ $address }};
+        {{- end}}
+        {{- if $.RewriteClientIP.RealIPHeader}}
+    real_ip_header {{ $.RewriteClientIP.RealIPHeader }};
+        {{- end}}
+        {{- if $.RewriteClientIP.Recursive}}
+    real_ip_recursive on;
+        {{- end }}
     default_type text/html;
     return 404;
 }
@@ -30,10 +47,10 @@ server {
 server {
         {{- if $s.SSL }}
           {{- if or ($.IPFamily.IPv4) ($s.IsSocket) }}
-    listen {{ $s.Listen }} ssl;
+    listen {{ $s.Listen }} ssl{{ $.RewriteClientIP.ProxyProtocol }};
           {{- end }}
           {{- if and ($.IPFamily.IPv6) (not $s.IsSocket) }}
-    listen [::]:{{ $s.Listen }} ssl;
+    listen [::]:{{ $s.Listen }} ssl{{ $.RewriteClientIP.ProxyProtocol }};
           {{- end }}
     ssl_certificate {{ $s.SSL.Certificate }};
     ssl_certificate_key {{ $s.SSL.CertificateKey }};
@@ -43,18 +60,32 @@ server {
     }
         {{- else }}
           {{- if $.IPFamily.IPv4 }}
-    listen {{ $s.Listen }};
+    listen {{ $s.Listen }}{{ $.RewriteClientIP.ProxyProtocol }};
           {{- end }}
           {{- if $.IPFamily.IPv6 }}
-    listen [::]:{{ $s.Listen }};
+    listen [::]:{{ $s.Listen }}{{ $.RewriteClientIP.ProxyProtocol }};
           {{- end }}
         {{- end }}
 
     server_name {{ $s.ServerName }};
 
+        {{- if $.Plus }}
+    status_zone {{ $s.ServerName }};
+        {{- end }}
+
         {{- range $i := $s.Includes }}
     include {{ $i.Name }};
-        {{ end -}}
+        {{- end }}
+
+        {{- range $address := $.RewriteClientIP.RealIPFrom }}
+    set_real_ip_from {{ $address }};
+        {{- end}}
+        {{- if $.RewriteClientIP.RealIPHeader}}
+    real_ip_header {{ $.RewriteClientIP.RealIPHeader }};
+        {{- end}}
+        {{- if $.RewriteClientIP.Recursive}}
+    real_ip_recursive on;
+        {{- end }}
 
         {{ range $l := $s.Locations }}
     location {{ $l.Path }} {
@@ -85,6 +116,7 @@ server {
         include /etc/nginx/grpc-error-pages.conf;
         {{- end }}
 
+        proxy_http_version 1.1;
         {{- if $l.ProxyPass -}}
             {{ range $h := $l.ProxySetHeaders }}
         {{ $proxyOrGRPC }}_set_header {{ $h.Name }} "{{ $h.Value }}";
@@ -100,7 +132,6 @@ server {
             {{ range $h := $l.ResponseHeaders.Remove }}
         proxy_hide_header {{ $h }};
             {{- end }}
-        proxy_http_version 1.1;
             {{- if $l.ProxySSLVerify }}
         {{ $proxyOrGRPC }}_ssl_server_name on;
         {{ $proxyOrGRPC }}_ssl_verify on;

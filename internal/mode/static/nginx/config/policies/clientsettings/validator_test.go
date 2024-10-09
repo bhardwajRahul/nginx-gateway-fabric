@@ -53,6 +53,7 @@ func createModifiedPolicy(mod policyModFunc) *ngfAPI.ClientSettingsPolicy {
 }
 
 func TestValidator_Validate(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		policy        *ngfAPI.ClientSettingsPolicy
@@ -102,13 +103,19 @@ func TestValidator_Validate(t *testing.T) {
 				return p
 			}),
 			expConditions: []conditions.Condition{
-				staticConds.NewPolicyInvalid("[spec.body.timeout: Invalid value: \"invalid\": \\d{1,4}(ms|s)? " +
-					"(e.g. '5ms',  or '10s', regex used for validation is 'must contain a number followed by 'ms' or 's''), " +
-					"spec.keepAlive.time: Invalid value: \"invalid\": \\d{1,4}(ms|s)? (e.g. '5ms',  or '10s', regex used for " +
-					"validation is 'must contain a number followed by 'ms' or 's''), spec.keepAlive.timeout.server: Invalid value: " +
-					"\"invalid\": \\d{1,4}(ms|s)? (e.g. '5ms',  or '10s', regex used for validation is 'must contain a number " +
-					"followed by 'ms' or 's''), spec.keepAlive.timeout.header: Invalid value: \"invalid\": \\d{1,4}(ms|s)? " +
-					"(e.g. '5ms',  or '10s', regex used for validation is 'must contain a number followed by 'ms' or 's'')]"),
+				staticConds.NewPolicyInvalid(
+					"[spec.body.timeout: Invalid value: \"invalid\": ^[0-9]{1,4}(ms|s|m|h)? " +
+						"(e.g. '5ms',  or '10s',  or '500m',  or '1000h', regex used for validation is " +
+						"'must contain an, at most, four digit number followed by 'ms', 's', 'm', or 'h''), " +
+						"spec.keepAlive.time: Invalid value: \"invalid\": ^[0-9]{1,4}(ms|s|m|h)? " +
+						"(e.g. '5ms',  or '10s',  or '500m',  or '1000h', regex used for validation is " +
+						"'must contain an, at most, four digit number followed by 'ms', 's', 'm', or 'h''), " +
+						"spec.keepAlive.timeout.server: Invalid value: \"invalid\": ^[0-9]{1,4}(ms|s|m|h)? " +
+						"(e.g. '5ms',  or '10s',  or '500m',  or '1000h', regex used for validation is " +
+						"'must contain an, at most, four digit number followed by 'ms', 's', 'm', or 'h''), " +
+						"spec.keepAlive.timeout.header: Invalid value: \"invalid\": ^[0-9]{1,4}(ms|s|m|h)? " +
+						"(e.g. '5ms',  or '10s',  or '500m',  or '1000h', regex used for validation is " +
+						"'must contain an, at most, four digit number followed by 'ms', 's', 'm', or 'h'')]"),
 			},
 		},
 		{
@@ -133,6 +140,7 @@ func TestValidator_Validate(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			conds := v.Validate(test.policy, nil)
@@ -142,6 +150,7 @@ func TestValidator_Validate(t *testing.T) {
 }
 
 func TestValidator_ValidatePanics(t *testing.T) {
+	t.Parallel()
 	v := clientsettings.NewValidator(nil)
 
 	validate := func() {
@@ -154,6 +163,7 @@ func TestValidator_ValidatePanics(t *testing.T) {
 }
 
 func TestValidator_Conflicts(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		polA      *ngfAPI.ClientSettingsPolicy
 		polB      *ngfAPI.ClientSettingsPolicy
@@ -256,6 +266,7 @@ func TestValidator_Conflicts(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			g.Expect(v.Conflicts(test.polA, test.polB)).To(Equal(test.conflicts))
@@ -264,6 +275,7 @@ func TestValidator_Conflicts(t *testing.T) {
 }
 
 func TestValidator_ConflictsPanics(t *testing.T) {
+	t.Parallel()
 	v := clientsettings.NewValidator(nil)
 
 	conflicts := func() {

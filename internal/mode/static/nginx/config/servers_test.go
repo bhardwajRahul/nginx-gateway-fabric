@@ -18,6 +18,8 @@ import (
 )
 
 func TestExecuteServers(t *testing.T) {
+	t.Parallel()
+
 	conf := dataplane.Configuration{
 		HTTPServers: []dataplane.VirtualServer{
 			{
@@ -33,6 +35,42 @@ func TestExecuteServers(t *testing.T) {
 				Port:     8080,
 				Policies: []policies.Policy{
 					&policiesfakes.FakePolicy{},
+				},
+				PathRules: []dataplane.PathRule{
+					{
+						Path:     "/",
+						PathType: dataplane.PathTypePrefix,
+						MatchRules: []dataplane.MatchRule{
+							{
+								Filters: dataplane.HTTPFilters{
+									SnippetsFilters: []dataplane.SnippetsFilter{
+										{
+											LocationSnippet: &dataplane.Snippet{
+												Name:     "location-snippet",
+												Contents: "location snippet contents",
+											},
+											ServerSnippet: &dataplane.Snippet{
+												Name:     "server-snippet",
+												Contents: "server snippet contents",
+											},
+										},
+									},
+								},
+								Match: dataplane.Match{},
+								BackendGroup: dataplane.BackendGroup{
+									Source:  types.NamespacedName{Namespace: "test", Name: "route1"},
+									RuleIdx: 0,
+									Backends: []dataplane.Backend{
+										{
+											UpstreamName: "test_foo_443",
+											Valid:        true,
+											Weight:       1,
+										},
+									},
+								},
+							},
+						},
+					},
 				},
 			},
 		},
@@ -97,6 +135,9 @@ func TestExecuteServers(t *testing.T) {
 		"ssl_certificate /etc/nginx/secrets/test-keypair.pem;":     2,
 		"ssl_certificate_key /etc/nginx/secrets/test-keypair.pem;": 2,
 		"proxy_ssl_server_name on;":                                1,
+		"status_zone":                                              0,
+		"include /etc/nginx/includes/location-snippet.conf":        1,
+		"include /etc/nginx/includes/server-snippet.conf":          1,
 	}
 
 	type assertion func(g *WithT, data string)
@@ -116,22 +157,32 @@ func TestExecuteServers(t *testing.T) {
 		includesFolder + "/include-2.conf": func(g *WithT, data string) {
 			g.Expect(data).To(Equal("include-2"))
 		},
+		includesFolder + "/location-snippet.conf": func(g *WithT, data string) {
+			g.Expect(data).To(Equal("location snippet contents"))
+		},
+		includesFolder + "/server-snippet.conf": func(g *WithT, data string) {
+			g.Expect(data).To(Equal("server snippet contents"))
+		},
 	}
+
 	g := NewWithT(t)
 
 	fakeGenerator := &policiesfakes.FakeGenerator{}
-	fakeGenerator.GenerateForServerReturns(policies.GenerateResultFiles{
-		{
-			Name:    "include-1.conf",
-			Content: []byte("include-1"),
+	fakeGenerator.GenerateForServerReturns(
+		policies.GenerateResultFiles{
+			{
+				Name:    "include-1.conf",
+				Content: []byte("include-1"),
+			},
+			{
+				Name:    "include-2.conf",
+				Content: []byte("include-2"),
+			},
 		},
-		{
-			Name:    "include-2.conf",
-			Content: []byte("include-2"),
-		},
-	})
+	)
 
-	results := executeServers(conf, fakeGenerator)
+	gen := GeneratorImpl{}
+	results := gen.executeServers(conf, fakeGenerator)
 	g.Expect(results).To(HaveLen(len(expectedResults)))
 
 	for _, res := range results {
@@ -142,7 +193,8 @@ func TestExecuteServers(t *testing.T) {
 	}
 }
 
-func TestExecuteServersForIPFamily(t *testing.T) {
+func TestExecuteServers_IPFamily(t *testing.T) {
+	t.Parallel()
 	httpServers := []dataplane.VirtualServer{
 		{
 			IsDefault: true,
@@ -256,14 +308,20 @@ func TestExecuteServersForIPFamily(t *testing.T) {
 				"listen [::]:8080;":                                        1,
 				"listen [::]:8443 ssl default_server;":                     1,
 				"listen [::]:8443 ssl;":                                    1,
+				"status_zone":                                              0,
+				"real_ip_header proxy-protocol;":                           0,
+				"real_ip_recursive on;":                                    0,
 			},
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.msg, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
-			results := executeServers(test.config, &policiesfakes.FakeGenerator{})
+
+			gen := GeneratorImpl{}
+			results := gen.executeServers(test.config, &policiesfakes.FakeGenerator{})
 			g.Expect(results).To(HaveLen(2))
 			serverConf := string(results[0].data)
 			httpMatchConf := string(results[1].data)
@@ -276,7 +334,165 @@ func TestExecuteServersForIPFamily(t *testing.T) {
 	}
 }
 
+func TestExecuteServers_RewriteClientIP(t *testing.T) {
+	t.Parallel()
+	httpServers := []dataplane.VirtualServer{
+		{
+			IsDefault: true,
+			Port:      8080,
+		},
+		{
+			Hostname: "example.com",
+			Port:     8080,
+		},
+	}
+
+	sslServers := []dataplane.VirtualServer{
+		{
+			IsDefault: true,
+			Port:      8443,
+		},
+		{
+			Hostname: "example.com",
+			SSL: &dataplane.SSL{
+				KeyPairID: "test-keypair",
+			},
+			Port: 8443,
+		},
+	}
+	tests := []struct {
+		msg                string
+		expectedHTTPConfig map[string]int
+		config             dataplane.Configuration
+	}{
+		{
+			msg: "rewrite client IP settings configured with proxy protocol",
+			config: dataplane.Configuration{
+				HTTPServers: httpServers,
+				SSLServers:  sslServers,
+				BaseHTTPConfig: dataplane.BaseHTTPConfig{
+					IPFamily: dataplane.Dual,
+					RewriteClientIPSettings: dataplane.RewriteClientIPSettings{
+						Mode:             dataplane.RewriteIPModeProxyProtocol,
+						TrustedAddresses: []string{"10.56.73.51/32"},
+						IPRecursive:      false,
+					},
+				},
+			},
+			expectedHTTPConfig: map[string]int{
+				"set_real_ip_from 10.56.73.51/32;":                         4,
+				"real_ip_header proxy_protocol;":                           4,
+				"listen 8080 default_server proxy_protocol;":               1,
+				"listen 8080 proxy_protocol;":                              1,
+				"listen 8443 ssl default_server proxy_protocol;":           1,
+				"listen 8443 ssl proxy_protocol;":                          1,
+				"server_name example.com;":                                 2,
+				"ssl_certificate /etc/nginx/secrets/test-keypair.pem;":     1,
+				"ssl_certificate_key /etc/nginx/secrets/test-keypair.pem;": 1,
+				"ssl_reject_handshake on;":                                 1,
+				"listen [::]:8080 default_server proxy_protocol;":          1,
+				"listen [::]:8080 proxy_protocol;":                         1,
+				"listen [::]:8443 ssl default_server proxy_protocol;":      1,
+				"listen [::]:8443 ssl proxy_protocol;":                     1,
+				"real_ip_recursive on;":                                    0,
+			},
+		},
+		{
+			msg: "rewrite client IP settings configured with x-forwarded-for",
+			config: dataplane.Configuration{
+				HTTPServers: httpServers,
+				SSLServers:  sslServers,
+				BaseHTTPConfig: dataplane.BaseHTTPConfig{
+					IPFamily: dataplane.Dual,
+					RewriteClientIPSettings: dataplane.RewriteClientIPSettings{
+						Mode:             dataplane.RewriteIPModeXForwardedFor,
+						TrustedAddresses: []string{"10.1.1.3/32", "2.2.2.2", "2001:db8::/32"},
+						IPRecursive:      true,
+					},
+				},
+			},
+			expectedHTTPConfig: map[string]int{
+				"set_real_ip_from 10.1.1.3/32;":                            4,
+				"set_real_ip_from 2.2.2.2;":                                4,
+				"set_real_ip_from 2001:db8::/32;":                          4,
+				"real_ip_header X-Forwarded-For;":                          4,
+				"real_ip_recursive on;":                                    4,
+				"listen 8080 default_server;":                              1,
+				"listen 8080;":                                             1,
+				"listen 8443 ssl default_server;":                          1,
+				"listen 8443 ssl;":                                         1,
+				"server_name example.com;":                                 2,
+				"ssl_certificate /etc/nginx/secrets/test-keypair.pem;":     1,
+				"ssl_certificate_key /etc/nginx/secrets/test-keypair.pem;": 1,
+				"ssl_reject_handshake on;":                                 1,
+				"listen [::]:8080 default_server;":                         1,
+				"listen [::]:8080;":                                        1,
+				"listen [::]:8443 ssl default_server;":                     1,
+				"listen [::]:8443 ssl;":                                    1,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.msg, func(t *testing.T) {
+			t.Parallel()
+			g := NewWithT(t)
+
+			gen := GeneratorImpl{}
+			results := gen.executeServers(test.config, &policiesfakes.FakeGenerator{})
+			g.Expect(results).To(HaveLen(2))
+			serverConf := string(results[0].data)
+			httpMatchConf := string(results[1].data)
+			g.Expect(httpMatchConf).To(Equal("{}"))
+
+			for expSubStr, expCount := range test.expectedHTTPConfig {
+				g.Expect(strings.Count(serverConf, expSubStr)).To(Equal(expCount))
+			}
+		})
+	}
+}
+
+func TestExecuteServers_Plus(t *testing.T) {
+	t.Parallel()
+	config := dataplane.Configuration{
+		HTTPServers: []dataplane.VirtualServer{
+			{
+				Hostname: "example.com",
+			},
+			{
+				Hostname: "example2.com",
+			},
+		},
+		SSLServers: []dataplane.VirtualServer{
+			{
+				Hostname: "example.com",
+				SSL: &dataplane.SSL{
+					KeyPairID: "test-keypair",
+				},
+			},
+		},
+	}
+
+	expectedHTTPConfig := map[string]int{
+		"status_zone example.com;":  2,
+		"status_zone example2.com;": 1,
+	}
+
+	g := NewWithT(t)
+
+	gen := GeneratorImpl{plus: true}
+	results := gen.executeServers(config, &policiesfakes.FakeGenerator{})
+	g.Expect(results).To(HaveLen(2))
+
+	serverConf := string(results[0].data)
+
+	for expSubStr, expCount := range expectedHTTPConfig {
+		g.Expect(strings.Count(serverConf, expSubStr)).To(Equal(expCount))
+	}
+}
+
 func TestExecuteForDefaultServers(t *testing.T) {
+	t.Parallel()
 	testcases := []struct {
 		msg       string
 		httpPorts []int
@@ -345,9 +561,11 @@ func TestExecuteForDefaultServers(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.msg, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
-			serverResults := executeServers(tc.conf, &policiesfakes.FakeGenerator{})
+			gen := GeneratorImpl{}
+			serverResults := gen.executeServers(tc.conf, &policiesfakes.FakeGenerator{})
 			g.Expect(serverResults).To(HaveLen(2))
 			serverConf := string(serverResults[0].data)
 			httpMatchConf := string(serverResults[1].data)
@@ -365,6 +583,7 @@ func TestExecuteForDefaultServers(t *testing.T) {
 }
 
 func TestCreateServers(t *testing.T) {
+	t.Parallel()
 	const (
 		sslKeyPairID = "test-keypair"
 	)
@@ -752,44 +971,44 @@ func TestCreateServers(t *testing.T) {
 		},
 	}
 
-	httpServers := []dataplane.VirtualServer{
-		{
-			IsDefault: true,
-			Port:      8080,
-		},
-		{
-			Hostname:  "cafe.example.com",
-			PathRules: cafePathRules,
-			Port:      8080,
-			Policies: []policies.Policy{
-				&policiesfakes.FakePolicy{},
-				&policiesfakes.FakePolicy{},
+	conf := dataplane.Configuration{
+		HTTPServers: []dataplane.VirtualServer{
+			{
+				IsDefault: true,
+				Port:      8080,
+			},
+			{
+				Hostname:  "cafe.example.com",
+				PathRules: cafePathRules,
+				Port:      8080,
+				Policies: []policies.Policy{
+					&policiesfakes.FakePolicy{},
+					&policiesfakes.FakePolicy{},
+				},
 			},
 		},
-	}
-
-	sslServers := []dataplane.VirtualServer{
-		{
-			IsDefault: true,
-			Port:      8443,
-		},
-		{
-			Hostname:  "cafe.example.com",
-			SSL:       &dataplane.SSL{KeyPairID: sslKeyPairID},
-			PathRules: cafePathRules,
-			Port:      8443,
-			Policies: []policies.Policy{
-				&policiesfakes.FakePolicy{},
-				&policiesfakes.FakePolicy{},
+		SSLServers: []dataplane.VirtualServer{
+			{
+				IsDefault: true,
+				Port:      8443,
+			},
+			{
+				Hostname:  "cafe.example.com",
+				SSL:       &dataplane.SSL{KeyPairID: sslKeyPairID},
+				PathRules: cafePathRules,
+				Port:      8443,
+				Policies: []policies.Policy{
+					&policiesfakes.FakePolicy{},
+					&policiesfakes.FakePolicy{},
+				},
 			},
 		},
-	}
-
-	tlsPassthroughServers := []dataplane.Layer4VirtualServer{
-		{
-			Hostname:     "app.example.com",
-			Port:         8443,
-			UpstreamName: "sup",
+		TLSPassthroughServers: []dataplane.Layer4VirtualServer{
+			{
+				Hostname:     "app.example.com",
+				Port:         8443,
+				UpstreamName: "sup",
+			},
 		},
 	}
 
@@ -861,12 +1080,29 @@ func TestCreateServers(t *testing.T) {
 			Name:  "Connection",
 			Value: "$connection_upgrade",
 		},
+		{
+			Name:  "X-Real-IP",
+			Value: "$remote_addr",
+		},
+		{
+			Name:  "X-Forwarded-Proto",
+			Value: "$scheme",
+		},
+		{
+			Name:  "X-Forwarded-Host",
+			Value: "$host",
+		},
+		{
+			Name:  "X-Forwarded-Port",
+			Value: "$server_port",
+		},
 	}
 
-	externalIncludes := []http.Include{
+	externalIncludes := []shared.Include{
 		{Name: "/etc/nginx/includes/include-1.conf", Content: []byte("include-1")},
 	}
-	internalIncludes := []http.Include{
+
+	internalIncludes := []shared.Include{
 		{Name: "/etc/nginx/includes/internal-include-1.conf", Content: []byte("include-1")},
 	}
 
@@ -1128,6 +1364,22 @@ func TestCreateServers(t *testing.T) {
 						Name:  "Connection",
 						Value: "$connection_upgrade",
 					},
+					{
+						Name:  "X-Real-IP",
+						Value: "$remote_addr",
+					},
+					{
+						Name:  "X-Forwarded-Proto",
+						Value: "$scheme",
+					},
+					{
+						Name:  "X-Forwarded-Host",
+						Value: "$host",
+					},
+					{
+						Name:  "X-Forwarded-Port",
+						Value: "$server_port",
+					},
 				},
 				ResponseHeaders: http.ResponseHeaders{
 					Add: []http.Header{
@@ -1165,6 +1417,22 @@ func TestCreateServers(t *testing.T) {
 					{
 						Name:  "Connection",
 						Value: "$connection_upgrade",
+					},
+					{
+						Name:  "X-Real-IP",
+						Value: "$remote_addr",
+					},
+					{
+						Name:  "X-Forwarded-Proto",
+						Value: "$scheme",
+					},
+					{
+						Name:  "X-Forwarded-Host",
+						Value: "$host",
+					},
+					{
+						Name:  "X-Forwarded-Port",
+						Value: "$server_port",
 					},
 				},
 				ResponseHeaders: http.ResponseHeaders{
@@ -1234,6 +1502,7 @@ func TestCreateServers(t *testing.T) {
 		{
 			ServerName: "cafe.example.com",
 			Locations:  getExpectedLocations(false),
+			Includes:   []shared.Include{},
 			Listen:     "8080",
 			GRPC:       true,
 		},
@@ -1249,6 +1518,7 @@ func TestCreateServers(t *testing.T) {
 				CertificateKey: expectedPEMPath,
 			},
 			Locations: getExpectedLocations(true),
+			Includes:  []shared.Include{},
 			Listen:    getSocketNameHTTPS(8443),
 			IsSocket:  true,
 			GRPC:      true,
@@ -1271,7 +1541,7 @@ func TestCreateServers(t *testing.T) {
 		},
 	})
 
-	result, httpMatchPair := createServers(httpServers, sslServers, tlsPassthroughServers, fakeGenerator)
+	result, httpMatchPair := createServers(conf, fakeGenerator)
 
 	g.Expect(httpMatchPair).To(Equal(allExpMatchPair))
 	g.Expect(helpers.Diff(expectedServers, result)).To(BeEmpty())
@@ -1288,6 +1558,7 @@ func modifyMatchPairs(matchPairs httpMatchPairs) httpMatchPairs {
 }
 
 func TestCreateServersConflicts(t *testing.T) {
+	t.Parallel()
 	fooGroup := dataplane.BackendGroup{
 		Source:  types.NamespacedName{Namespace: "test", Name: "route"},
 		RuleIdx: 0,
@@ -1461,6 +1732,7 @@ func TestCreateServersConflicts(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			httpServers := []dataplane.VirtualServer{
 				{
 					IsDefault: true,
@@ -1481,15 +1753,14 @@ func TestCreateServersConflicts(t *testing.T) {
 					ServerName: "cafe.example.com",
 					Locations:  test.expLocs,
 					Listen:     "8080",
+					Includes:   []shared.Include{},
 				},
 			}
 
 			g := NewWithT(t)
 
 			result, _ := createServers(
-				httpServers,
-				[]dataplane.VirtualServer{},
-				[]dataplane.Layer4VirtualServer{},
+				dataplane.Configuration{HTTPServers: httpServers},
 				&policiesfakes.FakeGenerator{},
 			)
 			g.Expect(helpers.Diff(expectedServers, result)).To(BeEmpty())
@@ -1497,7 +1768,325 @@ func TestCreateServersConflicts(t *testing.T) {
 	}
 }
 
+func TestCreateServers_Includes(t *testing.T) {
+	t.Parallel()
+
+	pathRules := []dataplane.PathRule{
+		{
+			Path:     "/",
+			PathType: dataplane.PathTypeExact,
+			MatchRules: []dataplane.MatchRule{
+				{
+					Filters: dataplane.HTTPFilters{
+						SnippetsFilters: []dataplane.SnippetsFilter{
+							{
+								LocationSnippet: &dataplane.Snippet{
+									Name:     "location-snippet",
+									Contents: "location snippet contents",
+								},
+								ServerSnippet: &dataplane.Snippet{
+									Name:     "server-snippet",
+									Contents: "server snippet contents",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	httpServers := []dataplane.VirtualServer{
+		{
+			IsDefault: true,
+			Port:      8080,
+		},
+		{
+			Hostname:  "http.example.com",
+			PathRules: pathRules,
+			Port:      8080,
+			Policies: []policies.Policy{
+				&policiesfakes.FakePolicy{},
+			},
+		},
+	}
+
+	sslServers := []dataplane.VirtualServer{
+		{
+			IsDefault: true,
+			Port:      8443,
+		},
+		{
+			Hostname:  "ssl.example.com",
+			SSL:       &dataplane.SSL{KeyPairID: "test-keypair"},
+			PathRules: pathRules,
+			Port:      8443,
+			Policies: []policies.Policy{
+				&policiesfakes.FakePolicy{},
+			},
+		},
+	}
+
+	fakeGenerator := &policiesfakes.FakeGenerator{}
+	fakeGenerator.GenerateForLocationReturns(policies.GenerateResultFiles{
+		{
+			Name:    "ext-policy.conf",
+			Content: []byte("external policy conf"),
+		},
+	})
+	fakeGenerator.GenerateForServerReturns(policies.GenerateResultFiles{
+		{
+			Name:    "server-policy.conf",
+			Content: []byte("server policy conf"),
+		},
+	})
+
+	expServers := []http.Server{
+		{
+			IsDefaultHTTP: true,
+		},
+		{
+			ServerName: "http.example.com",
+			Locations: []http.Location{
+				{
+					Path: "= /",
+					Includes: []shared.Include{
+						{
+							Name:    includesFolder + "/location-snippet.conf",
+							Content: []byte("location snippet contents"),
+						},
+						{
+							Name:    includesFolder + "/ext-policy.conf",
+							Content: []byte("external policy conf"),
+						},
+					},
+				},
+			},
+			Includes: []shared.Include{
+				{
+					Name:    includesFolder + "/server-policy.conf",
+					Content: []byte("server policy conf"),
+				},
+				{
+					Name:    includesFolder + "/server-snippet.conf",
+					Content: []byte("server snippet contents"),
+				},
+			},
+			Listen: "8080",
+			GRPC:   true,
+		},
+		{
+			IsDefaultSSL: true,
+		},
+		{
+			ServerName: "ssl.example.com",
+			Locations: []http.Location{
+				{
+					Path: "= /",
+					Includes: []shared.Include{
+						{
+							Name:    includesFolder + "/location-snippet.conf",
+							Content: []byte("location snippet contents"),
+						},
+						{
+							Name:    includesFolder + "/ext-policy.conf",
+							Content: []byte("external policy conf"),
+						},
+					},
+				},
+			},
+			Includes: []shared.Include{
+				{
+					Name:    includesFolder + "/server-policy.conf",
+					Content: []byte("server policy conf"),
+				},
+				{
+					Name:    includesFolder + "/server-snippet.conf",
+					Content: []byte("server snippet contents"),
+				},
+			},
+		},
+	}
+
+	g := NewWithT(t)
+
+	conf := dataplane.Configuration{HTTPServers: httpServers, SSLServers: sslServers}
+
+	actualServers, matchPairs := createServers(conf, fakeGenerator)
+	g.Expect(matchPairs).To(BeEmpty())
+	g.Expect(actualServers).To(HaveLen(len(expServers)))
+
+	for i, expServer := range expServers {
+		g.Expect(actualServers[i].ServerName).To(Equal(expServer.ServerName))
+
+		if actualServers[i].IsDefaultHTTP || actualServers[i].IsDefaultSSL {
+			g.Expect(actualServers[i].Includes).To(BeEmpty())
+		} else {
+			g.Expect(actualServers[i].Includes).To(ConsistOf(expServer.Includes))
+			g.Expect(actualServers[i].Locations).To(HaveLen(1))
+			g.Expect(actualServers[i].Locations[0].Path).To(Equal(expServer.Locations[0].Path))
+			g.Expect(actualServers[i].Locations[0].Includes).To(ConsistOf(expServer.Locations[0].Includes))
+		}
+	}
+}
+
+func TestCreateLocations_Includes(t *testing.T) {
+	t.Parallel()
+
+	httpServer := dataplane.VirtualServer{
+		Hostname: "example.com",
+		PathRules: []dataplane.PathRule{
+			{
+				Path:     "/",
+				PathType: dataplane.PathTypeExact,
+				MatchRules: []dataplane.MatchRule{
+					{
+						Filters: dataplane.HTTPFilters{
+							SnippetsFilters: []dataplane.SnippetsFilter{
+								{
+									LocationSnippet: &dataplane.Snippet{
+										Name:     "location-snippet",
+										Contents: "location snippet contents",
+									},
+									ServerSnippet: &dataplane.Snippet{
+										Name:     "server-snippet",
+										Contents: "server snippet 2 contents",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			{
+				Path:     "/snippets-prefix-path",
+				PathType: dataplane.PathTypePrefix,
+				MatchRules: []dataplane.MatchRule{
+					{
+						Filters: dataplane.HTTPFilters{
+							SnippetsFilters: []dataplane.SnippetsFilter{
+								{
+									LocationSnippet: &dataplane.Snippet{
+										Name:     "prefix-path-location-snippet",
+										Contents: "prefix path location snippet contents",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			{
+				Path:     "/snippets-with-method-match",
+				PathType: dataplane.PathTypeExact,
+				MatchRules: []dataplane.MatchRule{
+					{
+						Match: dataplane.Match{
+							Method: helpers.GetPointer("GET"),
+						},
+						Filters: dataplane.HTTPFilters{
+							SnippetsFilters: []dataplane.SnippetsFilter{
+								{
+									LocationSnippet: &dataplane.Snippet{
+										Name:     "method-match-location-snippet",
+										Contents: "method match location snippet contents",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Port: 80,
+	}
+
+	externalPolicyInclude := shared.Include{
+		Name:    includesFolder + "/ext-policy.conf",
+		Content: []byte("external policy conf"),
+	}
+
+	internalPolicyInclude := shared.Include{
+		Name:    includesFolder + "/int-policy.conf",
+		Content: []byte("internal policy conf"),
+	}
+
+	// this test only covers the includes generated for locations, it does not test other location fields.
+	expLocations := []http.Location{
+		{
+			Path: "= /",
+			Includes: []shared.Include{
+				{
+					Name:    includesFolder + "/location-snippet.conf",
+					Content: []byte("location snippet contents"),
+				},
+				externalPolicyInclude,
+			},
+		},
+		{
+			Path: "/snippets-prefix-path/",
+			Includes: []shared.Include{
+				{
+					Name:    includesFolder + "/prefix-path-location-snippet.conf",
+					Content: []byte("prefix path location snippet contents"),
+				},
+				externalPolicyInclude,
+			},
+		},
+		{
+			Path: "= /snippets-prefix-path",
+			Includes: []shared.Include{
+				{
+					Name:    includesFolder + "/prefix-path-location-snippet.conf",
+					Content: []byte("prefix path location snippet contents"),
+				},
+				externalPolicyInclude,
+			},
+		},
+		{
+			Path:     "= /snippets-with-method-match",
+			Includes: []shared.Include{externalPolicyInclude},
+		},
+		{
+			Path: "/_ngf-internal-rule2-route0",
+			Includes: []shared.Include{
+				{
+					Name:    includesFolder + "/method-match-location-snippet.conf",
+					Content: []byte("method match location snippet contents"),
+				},
+				internalPolicyInclude,
+			},
+		},
+	}
+
+	fakeGenerator := &policiesfakes.FakeGenerator{}
+	fakeGenerator.GenerateForLocationReturns(policies.GenerateResultFiles{
+		{
+			Name:    "ext-policy.conf",
+			Content: []byte("external policy conf"),
+		},
+	})
+	fakeGenerator.GenerateForInternalLocationReturns(policies.GenerateResultFiles{
+		{
+			Name:    "int-policy.conf",
+			Content: []byte("internal policy conf"),
+		},
+	})
+
+	locations, matches, grpc := createLocations(&httpServer, "1", fakeGenerator)
+
+	g := NewWithT(t)
+	g.Expect(grpc).To(BeFalse())
+	g.Expect(matches).To(HaveLen(1))
+	g.Expect(locations).To(HaveLen(len(expLocations)))
+	for i, location := range locations {
+		g.Expect(location.Path).To(Equal(expLocations[i].Path))
+		g.Expect(location.Includes).To(ConsistOf(expLocations[i].Includes))
+	}
+}
+
 func TestCreateLocationsRootPath(t *testing.T) {
+	t.Parallel()
 	hrNsName := types.NamespacedName{Namespace: "test", Name: "route1"}
 
 	fooGroup := dataplane.BackendGroup{
@@ -1664,6 +2253,7 @@ func TestCreateLocationsRootPath(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			locs, httpMatchPair, grpc := createLocations(&dataplane.VirtualServer{
@@ -1678,6 +2268,7 @@ func TestCreateLocationsRootPath(t *testing.T) {
 }
 
 func TestCreateReturnValForRedirectFilter(t *testing.T) {
+	t.Parallel()
 	const listenerPortCustom = 123
 	const listenerPortHTTP = 80
 	const listenerPortHTTPS = 443
@@ -1800,6 +2391,7 @@ func TestCreateReturnValForRedirectFilter(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.msg, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			result := createReturnValForRedirectFilter(test.filter, test.listenerPort)
@@ -1809,6 +2401,7 @@ func TestCreateReturnValForRedirectFilter(t *testing.T) {
 }
 
 func TestCreateRewritesValForRewriteFilter(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		filter   *dataplane.HTTPURLRewriteFilter
 		expected *rewriteConfig
@@ -1926,6 +2519,7 @@ func TestCreateRewritesValForRewriteFilter(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.msg, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			result := createRewritesValForRewriteFilter(test.filter, test.path)
@@ -1935,6 +2529,7 @@ func TestCreateRewritesValForRewriteFilter(t *testing.T) {
 }
 
 func TestCreateRouteMatch(t *testing.T) {
+	t.Parallel()
 	testPath := "/internal_loc"
 
 	testMethodMatch := helpers.GetPointer("PUT")
@@ -2085,6 +2680,7 @@ func TestCreateRouteMatch(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.msg, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			result := createRouteMatch(tc.match, testPath)
@@ -2094,6 +2690,7 @@ func TestCreateRouteMatch(t *testing.T) {
 }
 
 func TestCreateQueryParamKeyValString(t *testing.T) {
+	t.Parallel()
 	g := NewWithT(t)
 
 	expected := "key=value"
@@ -2120,6 +2717,7 @@ func TestCreateQueryParamKeyValString(t *testing.T) {
 }
 
 func TestCreateHeaderKeyValString(t *testing.T) {
+	t.Parallel()
 	g := NewWithT(t)
 
 	expected := "kEy:vALUe"
@@ -2135,6 +2733,7 @@ func TestCreateHeaderKeyValString(t *testing.T) {
 }
 
 func TestIsPathOnlyMatch(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		msg      string
 		match    dataplane.Match
@@ -2180,6 +2779,7 @@ func TestIsPathOnlyMatch(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.msg, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			result := isPathOnlyMatch(tc.match)
@@ -2189,7 +2789,7 @@ func TestIsPathOnlyMatch(t *testing.T) {
 }
 
 func TestCreateProxyPass(t *testing.T) {
-	g := NewWithT(t)
+	t.Parallel()
 
 	tests := []struct {
 		rewrite  *dataplane.HTTPURLRewriteFilter
@@ -2258,12 +2858,17 @@ func TestCreateProxyPass(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		result := createProxyPass(tc.grp, tc.rewrite, generateProtocolString(nil, tc.GRPC), tc.GRPC)
-		g.Expect(result).To(Equal(tc.expected))
+		t.Run(tc.expected, func(t *testing.T) {
+			t.Parallel()
+			g := NewWithT(t)
+			result := createProxyPass(tc.grp, tc.rewrite, generateProtocolString(nil, tc.GRPC), tc.GRPC)
+			g.Expect(result).To(Equal(tc.expected))
+		})
 	}
 }
 
 func TestCreateMatchLocation(t *testing.T) {
+	t.Parallel()
 	g := NewWithT(t)
 
 	expectedNoGRPC := http.Location{
@@ -2287,6 +2892,7 @@ func TestCreateMatchLocation(t *testing.T) {
 }
 
 func TestGenerateProxySetHeaders(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		filters         *dataplane.HTTPFilters
 		msg             string
@@ -2341,6 +2947,22 @@ func TestGenerateProxySetHeaders(t *testing.T) {
 					Name:  "Connection",
 					Value: "$connection_upgrade",
 				},
+				{
+					Name:  "X-Real-IP",
+					Value: "$remote_addr",
+				},
+				{
+					Name:  "X-Forwarded-Proto",
+					Value: "$scheme",
+				},
+				{
+					Name:  "X-Forwarded-Host",
+					Value: "$host",
+				},
+				{
+					Name:  "X-Forwarded-Port",
+					Value: "$server_port",
+				},
 			},
 		},
 		{
@@ -2378,6 +3000,22 @@ func TestGenerateProxySetHeaders(t *testing.T) {
 				{
 					Name:  "Connection",
 					Value: "$connection_upgrade",
+				},
+				{
+					Name:  "X-Real-IP",
+					Value: "$remote_addr",
+				},
+				{
+					Name:  "X-Forwarded-Proto",
+					Value: "$scheme",
+				},
+				{
+					Name:  "X-Forwarded-Host",
+					Value: "$host",
+				},
+				{
+					Name:  "X-Forwarded-Port",
+					Value: "$server_port",
 				},
 			},
 		},
@@ -2426,12 +3064,29 @@ func TestGenerateProxySetHeaders(t *testing.T) {
 					Name:  "Authority",
 					Value: "$gw_api_compliant_host",
 				},
+				{
+					Name:  "X-Real-IP",
+					Value: "$remote_addr",
+				},
+				{
+					Name:  "X-Forwarded-Proto",
+					Value: "$scheme",
+				},
+				{
+					Name:  "X-Forwarded-Host",
+					Value: "$host",
+				},
+				{
+					Name:  "X-Forwarded-Port",
+					Value: "$server_port",
+				},
 			},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.msg, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			headers := generateProxySetHeaders(tc.filters, tc.GRPC)
@@ -2441,7 +3096,7 @@ func TestGenerateProxySetHeaders(t *testing.T) {
 }
 
 func TestConvertBackendTLSFromGroup(t *testing.T) {
-	g := NewWithT(t)
+	t.Parallel()
 
 	tests := []struct {
 		expected *http.ProxySSLVerify
@@ -2522,7 +3177,10 @@ func TestConvertBackendTLSFromGroup(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		t.Run(tc.msg, func(_ *testing.T) {
+		t.Run(tc.msg, func(t *testing.T) {
+			t.Parallel()
+			g := NewWithT(t)
+
 			result := createProxyTLSFromBackends(tc.grp)
 			g.Expect(result).To(Equal(tc.expected))
 		})
@@ -2530,6 +3188,7 @@ func TestConvertBackendTLSFromGroup(t *testing.T) {
 }
 
 func TestGenerateResponseHeaders(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		filters         *dataplane.HTTPFilters
 		msg             string
@@ -2589,6 +3248,7 @@ func TestGenerateResponseHeaders(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.msg, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			headers := generateResponseHeaders(tc.filters)
@@ -2597,151 +3257,8 @@ func TestGenerateResponseHeaders(t *testing.T) {
 	}
 }
 
-func TestCreateIncludesFromPolicyGenerateResult(t *testing.T) {
-	tests := []struct {
-		name     string
-		files    []policies.File
-		includes []http.Include
-	}{
-		{
-			name:     "no files",
-			files:    nil,
-			includes: nil,
-		},
-		{
-			name: "additions",
-			files: []policies.File{
-				{
-					Content: []byte("one"),
-					Name:    "one.conf",
-				},
-				{
-					Content: []byte("two"),
-					Name:    "two.conf",
-				},
-				{
-					Content: []byte("three"),
-					Name:    "three.conf",
-				},
-			},
-			includes: []http.Include{
-				{
-					Content: []byte("one"),
-					Name:    includesFolder + "/one.conf",
-				},
-				{
-					Content: []byte("two"),
-					Name:    includesFolder + "/two.conf",
-				},
-				{
-					Content: []byte("three"),
-					Name:    includesFolder + "/three.conf",
-				},
-			},
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			g := NewWithT(t)
-
-			includes := createIncludesFromPolicyGenerateResult(test.files)
-			g.Expect(includes).To(Equal(test.includes))
-		})
-	}
-}
-
-func TestCreateIncludeFileResults(t *testing.T) {
-	servers := []http.Server{
-		{
-			Includes: []http.Include{
-				{
-					Name:    "include-1.conf",
-					Content: []byte("include-1"),
-				},
-				{
-					Name:    "include-2.conf",
-					Content: []byte("include-2"),
-				},
-			},
-			Locations: []http.Location{
-				{
-					Includes: []http.Include{
-						{
-							Name:    "include-3.conf",
-							Content: []byte("include-3"),
-						},
-						{
-							Name:    "include-4.conf",
-							Content: []byte("include-4"),
-						},
-					},
-				},
-			},
-		},
-		{
-			Includes: []http.Include{
-				{
-					Name:    "include-1.conf", // dupe
-					Content: []byte("include-1"),
-				},
-				{
-					Name:    "include-2.conf", // dupe
-					Content: []byte("include-2"),
-				},
-			},
-			Locations: []http.Location{
-				{
-					Includes: []http.Include{
-						{
-							Name:    "include-3.conf", // dupe
-							Content: []byte("include-3"),
-						},
-						{
-							Name:    "include-4.conf", // dupe
-							Content: []byte("include-4"),
-						},
-						{
-							Name:    "include-5.conf",
-							Content: []byte("include-5"),
-						},
-					},
-				},
-			},
-		},
-	}
-
-	results := createIncludeFileResults(servers)
-
-	expResults := []executeResult{
-		{
-			dest: "include-1.conf",
-			data: []byte("include-1"),
-		},
-		{
-			dest: "include-2.conf",
-			data: []byte("include-2"),
-		},
-		{
-			dest: "include-3.conf",
-			data: []byte("include-3"),
-		},
-		{
-			dest: "include-4.conf",
-			data: []byte("include-4"),
-		},
-		{
-			dest: "include-5.conf",
-			data: []byte("include-5"),
-		},
-	}
-
-	g := NewWithT(t)
-
-	g.Expect(results).To(ConsistOf(expResults))
-}
-
 func TestGetIPFamily(t *testing.T) {
+	t.Parallel()
 	test := []struct {
 		msg            string
 		baseHTTPConfig dataplane.BaseHTTPConfig
@@ -2766,7 +3283,9 @@ func TestGetIPFamily(t *testing.T) {
 
 	for _, tc := range test {
 		t.Run(tc.msg, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
+
 			result := getIPFamily(tc.baseHTTPConfig)
 			g.Expect(result).To(Equal(tc.expected))
 		})

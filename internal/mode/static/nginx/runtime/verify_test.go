@@ -30,7 +30,8 @@ func getTestHTTPClient() *http.Client {
 }
 
 func TestVerifyClient(t *testing.T) {
-	c := verifyClient{
+	t.Parallel()
+	c := VerifyClient{
 		client:  getTestHTTPClient(),
 		timeout: 25 * time.Millisecond,
 	}
@@ -50,7 +51,7 @@ func TestVerifyClient(t *testing.T) {
 
 	tests := []struct {
 		ctx             context.Context
-		readFile        readFileFunc
+		readFile        ReadFileFunc
 		name            string
 		expectedVersion int
 		expectError     bool
@@ -87,9 +88,10 @@ func TestVerifyClient(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
-			err := c.waitForCorrectVersion(test.ctx, test.expectedVersion, "/childfile", []byte("1 2 3"), test.readFile)
+			err := c.WaitForCorrectVersion(test.ctx, test.expectedVersion, "/childfile", []byte("1 2 3"), test.readFile)
 
 			if test.expectError {
 				g.Expect(err).To(HaveOccurred())
@@ -101,6 +103,7 @@ func TestVerifyClient(t *testing.T) {
 }
 
 func TestEnsureNewNginxWorkers(t *testing.T) {
+	t.Parallel()
 	previousContents := []byte("1 2 3")
 	newContents := []byte("4 5 6")
 
@@ -126,7 +129,7 @@ func TestEnsureNewNginxWorkers(t *testing.T) {
 
 	tests := []struct {
 		ctx              context.Context
-		readFile         readFileFunc
+		readFile         ReadFileFunc
 		name             string
 		previousContents []byte
 		expectError      bool
@@ -163,6 +166,7 @@ func TestEnsureNewNginxWorkers(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			err := ensureNewNginxWorkers(

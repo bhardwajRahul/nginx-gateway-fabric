@@ -48,11 +48,12 @@ var _ = Describe("Upgrade testing", Label("nfr", "upgrade"), func() {
 		teardown(releaseName)
 
 		cfg := setupConfig{
-			releaseName:  releaseName,
-			chartPath:    "oci://ghcr.io/nginxinc/charts/nginx-gateway-fabric",
-			gwAPIVersion: *gatewayAPIPrevVersion,
-			deploy:       true,
-			nfr:          true,
+			releaseName:   releaseName,
+			chartPath:     "oci://ghcr.io/nginxinc/charts/nginx-gateway-fabric",
+			gwAPIVersion:  *gatewayAPIPrevVersion,
+			deploy:        true,
+			nfr:           true,
+			debugLogLevel: true,
 		}
 		setup(cfg, "--values", valuesFile)
 
@@ -162,7 +163,6 @@ var _ = Describe("Upgrade testing", Label("nfr", "upgrade"), func() {
 				buf := new(bytes.Buffer)
 				encoder := framework.NewVegetaCSVEncoder(buf)
 				for _, res := range results {
-					res := res
 					Expect(encoder.Encode(&res)).To(Succeed())
 				}
 

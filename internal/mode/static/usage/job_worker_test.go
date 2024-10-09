@@ -22,6 +22,7 @@ import (
 )
 
 func TestCreateUsageJobWorker(t *testing.T) {
+	t.Parallel()
 	replicas := int32(1)
 	ngfReplicaSet := &appsv1.ReplicaSet{
 		ObjectMeta: metav1.ObjectMeta{
@@ -57,8 +58,7 @@ func TestCreateUsageJobWorker(t *testing.T) {
 				return nil
 			},
 			getCalls: func(_ context.Context, _ types.NamespacedName, object client.Object, _ ...client.GetOption) error {
-				switch typedObject := object.(type) {
-				case *v1.Namespace:
+				if typedObject, ok := object.(*v1.Namespace); ok {
 					typedObject.Name = metav1.NamespaceSystem
 					typedObject.UID = "1234abcd"
 					return nil
@@ -82,8 +82,7 @@ func TestCreateUsageJobWorker(t *testing.T) {
 		{
 			name: "collect node count fails",
 			listCalls: func(_ context.Context, object client.ObjectList, _ ...client.ListOption) error {
-				switch object.(type) {
-				case *v1.NodeList:
+				if _, ok := object.(*v1.NodeList); ok {
 					return errors.New("failed to collect node list")
 				}
 				return nil
@@ -126,8 +125,7 @@ func TestCreateUsageJobWorker(t *testing.T) {
 				return nil
 			},
 			getCalls: func(_ context.Context, _ types.NamespacedName, object client.Object, _ ...client.GetOption) error {
-				switch object.(type) {
-				case *v1.Namespace:
+				if _, ok := object.(*v1.Namespace); ok {
 					return errors.New("failed to collect namespace")
 				}
 				return nil
@@ -139,6 +137,7 @@ func TestCreateUsageJobWorker(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			k8sClientReader := &eventsfakes.FakeReader{}
@@ -178,6 +177,7 @@ func TestCreateUsageJobWorker(t *testing.T) {
 }
 
 func TestGetTotalNGFPodCount(t *testing.T) {
+	t.Parallel()
 	g := NewWithT(t)
 
 	rs1Replicas := int32(1)
@@ -241,6 +241,7 @@ func TestGetTotalNGFPodCount(t *testing.T) {
 }
 
 func TestCollectNodeCount(t *testing.T) {
+	t.Parallel()
 	g := NewWithT(t)
 
 	node1 := &v1.Node{

@@ -3,6 +3,7 @@ package validation
 import "testing"
 
 func TestGenericValidator_ValidateEscapedStringNoVarExpansion(t *testing.T) {
+	t.Parallel()
 	validator := GenericValidator{}
 
 	testValidValuesForSimpleValidator(
@@ -24,6 +25,7 @@ func TestGenericValidator_ValidateEscapedStringNoVarExpansion(t *testing.T) {
 }
 
 func TestValidateServiceName(t *testing.T) {
+	t.Parallel()
 	validator := GenericValidator{}
 
 	testValidValuesForSimpleValidator(
@@ -45,6 +47,7 @@ func TestValidateServiceName(t *testing.T) {
 }
 
 func TestValidateNginxDuration(t *testing.T) {
+	t.Parallel()
 	validator := GenericValidator{}
 
 	testValidValuesForSimpleValidator(
@@ -53,6 +56,8 @@ func TestValidateNginxDuration(t *testing.T) {
 		`5ms`,
 		`10s`,
 		`123ms`,
+		`5m`,
+		`2h`,
 	)
 
 	testInvalidValuesForSimpleValidator(
@@ -60,11 +65,12 @@ func TestValidateNginxDuration(t *testing.T) {
 		validator.ValidateNginxDuration,
 		`test`,
 		`12345`,
-		`5m`,
+		`5k`,
 	)
 }
 
 func TestValidateNginxSize(t *testing.T) {
+	t.Parallel()
 	validator := GenericValidator{}
 
 	testValidValuesForSimpleValidator(
@@ -86,6 +92,7 @@ func TestValidateNginxSize(t *testing.T) {
 }
 
 func TestValidateEndpoint(t *testing.T) {
+	t.Parallel()
 	validator := GenericValidator{}
 
 	testValidValuesForSimpleValidator(

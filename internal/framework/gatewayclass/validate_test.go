@@ -13,6 +13,7 @@ import (
 )
 
 func TestValidateCRDVersions(t *testing.T) {
+	t.Parallel()
 	createCRDMetadata := func(version string) *metav1.PartialObjectMetadata {
 		return &metav1.PartialObjectMetadata{
 			ObjectMeta: metav1.ObjectMeta{
@@ -114,6 +115,7 @@ func TestValidateCRDVersions(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 
 			conds, valid := gatewayclass.ValidateCRDVersions(test.crds)

@@ -21,6 +21,33 @@ spec:
         app.kubernetes.io/name: nginx-gateway
         app.kubernetes.io/instance: nginx-gateway
     spec:
+      initContainers:
+      - name: copy-nginx-config
+        image: ghcr.io/nginxinc/nginx-gateway-fabric:edge
+        imagePullPolicy: Always
+        command:
+        - /usr/bin/gateway
+        - copy
+        - --source
+        - /includes/main.conf
+        - --destination
+        - /etc/nginx/main-includes/main.conf
+        securityContext:
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            add:
+            - KILL # Set because the binary has CAP_KILL for the main controller process. Not used by init.
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsUser: 102
+          runAsGroup: 1001
+        volumeMounts:
+        - name: nginx-includes-configmap
+          mountPath: /includes
+        - name: nginx-main-includes
+          mountPath: /etc/nginx/main-includes
       containers:
       - args:
         - static-mode
@@ -74,8 +101,8 @@ spec:
           mountPath: /etc/nginx/conf.d
         - name: nginx-stream-conf
           mountPath: /etc/nginx/stream-conf.d
-        - name: module-includes
-          mountPath: /etc/nginx/module-includes
+        - name: nginx-main-includes
+          mountPath: /etc/nginx/main-includes
         - name: nginx-secrets
           mountPath: /etc/nginx/secrets
         - name: nginx-run
@@ -106,8 +133,8 @@ spec:
           mountPath: /etc/nginx/conf.d
         - name: nginx-stream-conf
           mountPath: /etc/nginx/stream-conf.d
-        - name: module-includes
-          mountPath: /etc/nginx/module-includes
+        - name: nginx-main-includes
+          mountPath: /etc/nginx/main-includes
         - name: nginx-secrets
           mountPath: /etc/nginx/secrets
         - name: nginx-run
@@ -127,7 +154,7 @@ spec:
         emptyDir: {}
       - name: nginx-stream-conf
         emptyDir: {}
-      - name: module-includes
+      - name: nginx-main-includes
         emptyDir: {}
       - name: nginx-secrets
         emptyDir: {}
@@ -137,3 +164,6 @@ spec:
         emptyDir: {}
       - name: nginx-includes
         emptyDir: {}
+      - name: nginx-includes-configmap
+        configMap:
+          name: nginx-includes

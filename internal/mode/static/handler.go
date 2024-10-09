@@ -181,7 +181,7 @@ func (h *eventHandlerImpl) HandleEventBatch(ctx context.Context, logger logr.Log
 		h.parseAndCaptureEvent(ctx, logger, event)
 	}
 
-	changeType, graph := h.cfg.processor.Process()
+	changeType, gr := h.cfg.processor.Process()
 
 	var err error
 	switch changeType {
@@ -193,7 +193,7 @@ func (h *eventHandlerImpl) HandleEventBatch(ctx context.Context, logger logr.Log
 		return
 	case state.EndpointsOnlyChange:
 		h.version++
-		cfg := dataplane.BuildConfiguration(ctx, graph, h.cfg.serviceResolver, h.version)
+		cfg := dataplane.BuildConfiguration(ctx, gr, h.cfg.serviceResolver, h.version)
 
 		h.setLatestConfiguration(&cfg)
 
@@ -204,7 +204,7 @@ func (h *eventHandlerImpl) HandleEventBatch(ctx context.Context, logger logr.Log
 		)
 	case state.ClusterStateChange:
 		h.version++
-		cfg := dataplane.BuildConfiguration(ctx, graph, h.cfg.serviceResolver, h.version)
+		cfg := dataplane.BuildConfiguration(ctx, gr, h.cfg.serviceResolver, h.version)
 
 		h.setLatestConfiguration(&cfg)
 
@@ -230,10 +230,10 @@ func (h *eventHandlerImpl) HandleEventBatch(ctx context.Context, logger logr.Log
 
 	h.latestReloadResult = nginxReloadRes
 
-	h.updateStatuses(ctx, logger, graph)
+	h.updateStatuses(ctx, logger, gr)
 }
 
-func (h *eventHandlerImpl) updateStatuses(ctx context.Context, logger logr.Logger, graph *graph.Graph) {
+func (h *eventHandlerImpl) updateStatuses(ctx context.Context, logger logr.Logger, gr *graph.Graph) {
 	gwAddresses, err := getGatewayAddresses(ctx, h.cfg.k8sClient, nil, h.cfg.gatewayPodConfig)
 	if err != nil {
 		logger.Error(err, "Setting GatewayStatusAddress to Pod IP Address")
@@ -243,32 +243,42 @@ func (h *eventHandlerImpl) updateStatuses(ctx context.Context, logger logr.Logge
 
 	var gcReqs []frameworkStatus.UpdateRequest
 	if h.cfg.updateGatewayClassStatus {
-		gcReqs = status.PrepareGatewayClassRequests(graph.GatewayClass, graph.IgnoredGatewayClasses, transitionTime)
+		gcReqs = status.PrepareGatewayClassRequests(gr.GatewayClass, gr.IgnoredGatewayClasses, transitionTime)
 	}
 	routeReqs := status.PrepareRouteRequests(
-		graph.L4Routes,
-		graph.Routes,
+		gr.L4Routes,
+		gr.Routes,
 		transitionTime,
 		h.latestReloadResult,
 		h.cfg.gatewayCtlrName,
 	)
 
-	polReqs := status.PrepareBackendTLSPolicyRequests(graph.BackendTLSPolicies, transitionTime, h.cfg.gatewayCtlrName)
-	ngfPolReqs := status.PrepareNGFPolicyRequests(graph.NGFPolicies, transitionTime, h.cfg.gatewayCtlrName)
+	polReqs := status.PrepareBackendTLSPolicyRequests(gr.BackendTLSPolicies, transitionTime, h.cfg.gatewayCtlrName)
+	ngfPolReqs := status.PrepareNGFPolicyRequests(gr.NGFPolicies, transitionTime, h.cfg.gatewayCtlrName)
+	snippetsFilterReqs := status.PrepareSnippetsFilterRequests(
+		gr.SnippetsFilters,
+		transitionTime,
+		h.cfg.gatewayCtlrName,
+	)
 
-	reqs := make([]frameworkStatus.UpdateRequest, 0, len(gcReqs)+len(routeReqs)+len(polReqs)+len(ngfPolReqs))
+	reqs := make(
+		[]frameworkStatus.UpdateRequest,
+		0,
+		len(gcReqs)+len(routeReqs)+len(polReqs)+len(ngfPolReqs)+len(snippetsFilterReqs),
+	)
 	reqs = append(reqs, gcReqs...)
 	reqs = append(reqs, routeReqs...)
 	reqs = append(reqs, polReqs...)
 	reqs = append(reqs, ngfPolReqs...)
+	reqs = append(reqs, snippetsFilterReqs...)
 
 	h.cfg.statusUpdater.UpdateGroup(ctx, groupAllExceptGateways, reqs...)
 
 	// We put Gateway status updates separately from the rest of the statuses because we want to be able
 	// to update them separately from the rest of the graph whenever the public IP of NGF changes.
 	gwReqs := status.PrepareGatewayRequests(
-		graph.Gateway,
-		graph.IgnoredGateways,
+		gr.Gateway,
+		gr.IgnoredGateways,
 		transitionTime,
 		gwAddresses,
 		h.latestReloadResult,
@@ -471,8 +481,7 @@ func getGatewayAddresses(
 	}
 
 	var addresses, hostnames []string
-	switch gwSvc.Spec.Type {
-	case v1.ServiceTypeLoadBalancer:
+	if gwSvc.Spec.Type == v1.ServiceTypeLoadBalancer {
 		for _, ingress := range gwSvc.Status.LoadBalancer.Ingress {
 			if ingress.IP != "" {
 				addresses = append(addresses, ingress.IP)
@@ -559,15 +568,15 @@ func (h *eventHandlerImpl) nginxGatewayServiceUpsert(ctx context.Context, logger
 		logger.Error(err, "Setting GatewayStatusAddress to Pod IP Address")
 	}
 
-	graph := h.cfg.processor.GetLatestGraph()
-	if graph == nil {
+	gr := h.cfg.processor.GetLatestGraph()
+	if gr == nil {
 		return
 	}
 
 	transitionTime := metav1.Now()
 	gatewayStatuses := status.PrepareGatewayRequests(
-		graph.Gateway,
-		graph.IgnoredGateways,
+		gr.Gateway,
+		gr.IgnoredGateways,
 		transitionTime,
 		gwAddresses,
 		h.latestReloadResult,
@@ -585,15 +594,15 @@ func (h *eventHandlerImpl) nginxGatewayServiceDelete(
 		logger.Error(err, "Setting GatewayStatusAddress to Pod IP Address")
 	}
 
-	graph := h.cfg.processor.GetLatestGraph()
-	if graph == nil {
+	gr := h.cfg.processor.GetLatestGraph()
+	if gr == nil {
 		return
 	}
 
 	transitionTime := metav1.Now()
 	gatewayStatuses := status.PrepareGatewayRequests(
-		graph.Gateway,
-		graph.IgnoredGateways,
+		gr.Gateway,
+		gr.IgnoredGateways,
 		transitionTime,
 		gwAddresses,
 		h.latestReloadResult,

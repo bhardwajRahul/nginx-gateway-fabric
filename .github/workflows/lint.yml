@@ -22,14 +22,14 @@ permissions:
 jobs:
   lint:
     name: Go Lint
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         directory: [., tests] # we need to run golangci-lint for every module https://github.com/golangci/golangci-lint/issues/828
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
 
       - name: Setup Golang Environment
         uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5.0.2
@@ -37,24 +37,20 @@ jobs:
           go-version: stable
 
       - name: Lint Go
-        uses: golangci/golangci-lint-action@aaa42aa0628b4ae2578232a66b541047968fac86 # v6.1.0
+        uses: golangci/golangci-lint-action@971e284b6050e8a5849b72094c50ab08da042db8 # v6.1.1
         with:
           working-directory: ${{ matrix.directory }}
+          version: v1.61.0 # renovate: datasource=github-tags depName=golangci/golangci-lint
 
   njs-lint:
     name: NJS Lint
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
-
-      - name: Get Prettier version
-        id: prettier-version
-        run: |
-          echo "version=$(jq -r .devDependencies.prettier ${{ github.workspace }}/internal/mode/static/nginx/modules/package.json)" >> $GITHUB_OUTPUT
+        uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
 
       - name: Setup Node.js Environment
-        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
+        uses: actions/setup-node@0a44ba7841725637a19e28fa30b79a866c81b0a6 # v4.0.4
         with:
           node-version-file: .nvmrc
 
@@ -64,7 +60,7 @@ jobs:
         with:
           config_path: ${{ github.workspace }}/internal/mode/static/nginx/modules/.prettierrc
           file_pattern: ${{ github.workspace }}/internal/mode/static/nginx/modules/**/*.js
-          prettier_version: ${{ steps.prettier-version.outputs.version }}
+          prettier_version: 3.3.3 # renovate: datasource=npm depName=prettier
 
       - name: Prettier Output
         if: failure()
@@ -76,25 +72,25 @@ jobs:
 
   actionlint:
     name: Actionlint
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
 
       - name: Lint Actions
-        uses: reviewdog/action-actionlint@4f8f9963ca57a41e5fd5b538dd79dbfbd3e0b38a # v1.54.0
+        uses: reviewdog/action-actionlint@7eeec1dd160c2301eb28e1568721837d084558ad # v1.57.0
         with:
           actionlint_flags: -shellcheck ""
 
   markdown-lint:
     name: Markdown Lint
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
 
       - name: Lint Markdown
-        uses: DavidAnson/markdownlint-cli2-action@b4c9feab76d8025d1e83c653fa3990936df0e6c8 # v16.0.0
+        uses: DavidAnson/markdownlint-cli2-action@db43aef879112c3119a410d69f66701e0d530809 # v17.0.0
         with:
           config: .markdownlint-cli2.yaml
           globs: "**/*.md"
@@ -102,31 +98,33 @@ jobs:
 
   chart-lint:
     name: Chart Lint
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
         with:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f # v5.1.1
+        uses: actions/setup-python@f677139bbe7f9c59b41e40162b753c062f5d49a3 # v5.2.0
         with:
           python-version: "3.x"
           check-latest: true
 
       - name: Set up chart-testing
         uses: helm/chart-testing-action@e6669bcd63d7cb57cb4380c33043eebe5d111992 # v2.6.1
+        with:
+          version: 3.11.0 # renovate: datasource=github-tags depName=helm/chart-testing
 
       - name: Run chart-testing
         run: ct lint --print-config --config .ct.yaml
 
   yaml-lint:
     name: YAML lint
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
 
       - name: Lint YAML
-        uses: reviewdog/action-yamllint@4e4ba96d03a0e12a0e71c29e5fef1db309d09201 # v1.18.0
+        uses: reviewdog/action-yamllint@e09f07780388032a624e9eb44a23fd1bbb4052cc # v1.19.0

@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"runtime/debug"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	ctlrZap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 
@@ -65,6 +67,7 @@ func createStaticModeCommand() *cobra.Command {
 		usageReportServerURLFlag    = "usage-report-server-url"
 		usageReportSkipVerifyFlag   = "usage-report-skip-verify"
 		usageReportClusterNameFlag  = "usage-report-cluster-name"
+		snippetsFiltersFlag         = "snippets-filters"
 	)
 
 	// flag values
@@ -116,6 +119,8 @@ func createStaticModeCommand() *cobra.Command {
 		usageReportServerURL  = stringValidatingValue{
 			validator: validateURL,
 		}
+
+		snippetsFilters bool
 	)
 
 	cmd := &cobra.Command{
@@ -125,6 +130,8 @@ func createStaticModeCommand() *cobra.Command {
 			atom := zap.NewAtomicLevel()
 
 			logger := ctlrZap.New(ctlrZap.Level(atom))
+			klog.SetLogger(logger)
+
 			commit, date, dirty := getBuildInfo()
 			logger.Info(
 				"Starting NGINX Gateway Fabric in static mode",
@@ -239,6 +246,7 @@ func createStaticModeCommand() *cobra.Command {
 					Names:  flagKeys,
 					Values: flagValues,
 				},
+				SnippetsFilters: snippetsFilters,
 			}
 
 			if err := static.StartManager(conf); err != nil {
@@ -394,6 +402,14 @@ func createStaticModeCommand() *cobra.Command {
 		"Disable client verification of the NGINX Plus usage reporting server certificate.",
 	)
 
+	cmd.Flags().BoolVar(
+		&snippetsFilters,
+		snippetsFiltersFlag,
+		false,
+		"Enable SnippetsFilters feature. SnippetsFilters allow inserting NGINX configuration into the "+
+			"generated NGINX config for HTTPRoute and GRPCRoute resources.",
+	)
+
 	return cmd
 }
 
@@ -474,6 +490,63 @@ func createSleepCommand() *cobra.Command {
 		30*time.Second,
 		"Set the duration of sleep. Must be parsable by https://pkg.go.dev/time#ParseDuration",
 	)
+
+	return cmd
+}
+
+func createCopyCommand() *cobra.Command {
+	// flag names
+	const srcFlag = "source"
+	const destFlag = "destination"
+	// flag values
+	var src, dest string
+
+	cmd := &cobra.Command{
+		Use:   "copy",
+		Short: "Copy a file to a destination",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			if len(src) == 0 {
+				return errors.New("source must not be empty")
+			}
+			if len(dest) == 0 {
+				return errors.New("destination must not be empty")
+			}
+
+			srcFile, err := os.Open(src)
+			if err != nil {
+				return fmt.Errorf("error opening source file: %w", err)
+			}
+			defer srcFile.Close()
+
+			destFile, err := os.Create(dest)
+			if err != nil {
+				return fmt.Errorf("error creating destination file: %w", err)
+			}
+			defer destFile.Close()
+
+			if _, err := io.Copy(destFile, srcFile); err != nil {
+				return fmt.Errorf("error copying file contents: %w", err)
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(
+		&src,
+		srcFlag,
+		"",
+		"The source file to be copied",
+	)
+
+	cmd.Flags().StringVar(
+		&dest,
+		destFlag,
+		"",
+		"The destination for the source file to be copied to",
+	)
+
+	cmd.MarkFlagsRequiredTogether(srcFlag, destFlag)
 
 	return cmd
 }

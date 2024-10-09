@@ -36,6 +36,7 @@ import (
 )
 
 func TestNGF(t *testing.T) {
+	t.Parallel()
 	flag.Parse()
 	if *gatewayAPIVersion == "" {
 		panic("Gateway API version must be set")
@@ -91,11 +92,12 @@ const (
 )
 
 type setupConfig struct {
-	releaseName  string
-	chartPath    string
-	gwAPIVersion string
-	deploy       bool
-	nfr          bool
+	releaseName   string
+	chartPath     string
+	gwAPIVersion  string
+	deploy        bool
+	nfr           bool
+	debugLogLevel bool
 }
 
 func setup(cfg setupConfig, extraInstallArgs ...string) {
@@ -126,6 +128,7 @@ func setup(cfg setupConfig, extraInstallArgs ...string) {
 	resourceManager = framework.ResourceManager{
 		K8sClient:      k8sClient,
 		ClientGoClient: clientGoClient,
+		K8sConfig:      k8sConfig,
 		FS:             manifests,
 		TimeoutConfig:  timeoutConfig,
 	}
@@ -147,11 +150,12 @@ func setup(cfg setupConfig, extraInstallArgs ...string) {
 		Skip("Graceful Recovery test must be run on Kind")
 	}
 
-	if *versionUnderTest != "" {
+	switch {
+	case *versionUnderTest != "":
 		version = *versionUnderTest
-	} else if *imageTag != "" {
+	case *imageTag != "":
 		version = *imageTag
-	} else {
+	default:
 		version = "edge"
 	}
 
@@ -159,36 +163,7 @@ func setup(cfg setupConfig, extraInstallArgs ...string) {
 		return
 	}
 
-	installCfg := framework.InstallationConfig{
-		ReleaseName:     cfg.releaseName,
-		Namespace:       ngfNamespace,
-		ChartPath:       cfg.chartPath,
-		ServiceType:     *serviceType,
-		IsGKEInternalLB: *isGKEInternalLB,
-		Plus:            *plusEnabled,
-	}
-
-	// if we aren't installing from the public charts, then set the custom images
-	if !strings.HasPrefix(cfg.chartPath, "oci://") {
-		installCfg.NgfImageRepository = *ngfImageRepository
-		installCfg.NginxImageRepository = *nginxImageRepository
-		if *plusEnabled && cfg.nfr {
-			installCfg.NginxImageRepository = *nginxPlusImageRepository
-		}
-		installCfg.ImageTag = *imageTag
-		installCfg.ImagePullPolicy = *imagePullPolicy
-	} else {
-		if version == "edge" {
-			chartVersion = "0.0.0-edge"
-			installCfg.ChartVersion = chartVersion
-		}
-	}
-
-	output, err := framework.InstallGatewayAPI(cfg.gwAPIVersion)
-	Expect(err).ToNot(HaveOccurred(), string(output))
-
-	output, err = framework.InstallNGF(installCfg, extraInstallArgs...)
-	Expect(err).ToNot(HaveOccurred(), string(output))
+	installCfg := createNGFInstallConfig(cfg, extraInstallArgs...)
 
 	podNames, err := framework.GetReadyNGFPodNames(
 		k8sClient,
@@ -210,6 +185,46 @@ func setup(cfg setupConfig, extraInstallArgs ...string) {
 		address, err = resourceManager.GetLBIPAddress(installCfg.Namespace)
 	}
 	Expect(err).ToNot(HaveOccurred())
+}
+
+func createNGFInstallConfig(cfg setupConfig, extraInstallArgs ...string) framework.InstallationConfig {
+	installCfg := framework.InstallationConfig{
+		ReleaseName:     cfg.releaseName,
+		Namespace:       ngfNamespace,
+		ChartPath:       cfg.chartPath,
+		ServiceType:     *serviceType,
+		IsGKEInternalLB: *isGKEInternalLB,
+		Plus:            *plusEnabled,
+	}
+
+	// if we aren't installing from the public charts, then set the custom images
+	if !strings.HasPrefix(cfg.chartPath, "oci://") {
+		installCfg.NgfImageRepository = *ngfImageRepository
+		installCfg.NginxImageRepository = *nginxImageRepository
+		if *plusEnabled && cfg.nfr {
+			installCfg.NginxImageRepository = *nginxPlusImageRepository
+		}
+		installCfg.ImageTag = *imageTag
+		installCfg.ImagePullPolicy = *imagePullPolicy
+	} else if version == "edge" {
+		chartVersion = "0.0.0-edge"
+		installCfg.ChartVersion = chartVersion
+	}
+
+	output, err := framework.InstallGatewayAPI(cfg.gwAPIVersion)
+	Expect(err).ToNot(HaveOccurred(), string(output))
+
+	if cfg.debugLogLevel {
+		extraInstallArgs = append(
+			extraInstallArgs,
+			"--set", "nginxGateway.config.logging.level=debug",
+		)
+	}
+
+	output, err = framework.InstallNGF(installCfg, extraInstallArgs...)
+	Expect(err).ToNot(HaveOccurred(), string(output))
+
+	return installCfg
 }
 
 func teardown(relName string) {
@@ -255,10 +270,11 @@ func getDefaultSetupCfg() setupConfig {
 	localChartPath = filepath.Join(basepath, "charts/nginx-gateway-fabric")
 
 	return setupConfig{
-		releaseName:  releaseName,
-		chartPath:    localChartPath,
-		gwAPIVersion: *gatewayAPIVersion,
-		deploy:       true,
+		releaseName:   releaseName,
+		chartPath:     localChartPath,
+		gwAPIVersion:  *gatewayAPIVersion,
+		deploy:        true,
+		debugLogLevel: true,
 	}
 }
 
@@ -274,6 +290,7 @@ var _ = BeforeSuite(func() {
 		"longevity-teardown", // - running longevity teardown (deployment will already exist)
 		"telemetry",          // - running telemetry test (NGF will be deployed as part of the test)
 		"scale",              // - running scale test (this test will deploy its own version)
+		"reconfiguration",    // - running reconfiguration test (test will deploy its own instances)
 	}
 	for _, s := range skipSubstrings {
 		if strings.Contains(labelFilter, s) {
@@ -317,7 +334,8 @@ func isNFR(labelFilter string) bool {
 		strings.Contains(labelFilter, "longevity") ||
 		strings.Contains(labelFilter, "performance") ||
 		strings.Contains(labelFilter, "upgrade") ||
-		strings.Contains(labelFilter, "scale")
+		strings.Contains(labelFilter, "scale") ||
+		strings.Contains(labelFilter, "reconfiguration")
 }
 
 var _ = ReportAfterSuite("Print info on failure", func(report Report) {

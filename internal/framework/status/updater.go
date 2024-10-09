@@ -3,6 +3,7 @@ package status
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -53,10 +54,12 @@ type Updater struct {
 	logger logr.Logger
 }
 
+var ErrFailedAssert = errors.New("type assertion failed")
+
 // NewUpdater creates a new Updater.
-func NewUpdater(client client.Client, logger logr.Logger) *Updater {
+func NewUpdater(c client.Client, logger logr.Logger) *Updater {
 	return &Updater{
-		client: client,
+		client: c,
 		logger: logger,
 	}
 }
@@ -87,7 +90,11 @@ func (u *Updater) writeStatuses(
 	resourceType ngftypes.ObjectType,
 	statusSetter Setter,
 ) {
-	obj := resourceType.DeepCopyObject().(client.Object)
+	copiedObject := resourceType.DeepCopyObject()
+	obj, ok := copiedObject.(client.Object)
+	if !ok {
+		panic(fmt.Errorf("object is not a client.Object: %w", ErrFailedAssert))
+	}
 
 	err := wait.ExponentialBackoffWithContext(
 		ctx,

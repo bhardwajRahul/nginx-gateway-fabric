@@ -25,6 +25,8 @@ Resource Types:
 <a href="#gateway.nginx.org/v1alpha1.NginxProxy">NginxProxy</a>
 </li><li>
 <a href="#gateway.nginx.org/v1alpha1.ObservabilityPolicy">ObservabilityPolicy</a>
+</li><li>
+<a href="#gateway.nginx.org/v1alpha1.SnippetsFilter">SnippetsFilter</a>
 </li></ul>
 <h3 id="gateway.nginx.org/v1alpha1.ClientSettingsPolicy">ClientSettingsPolicy
 <a class="headerlink" href="#gateway.nginx.org%2fv1alpha1.ClientSettingsPolicy" title="Permanent link">¶</a>
@@ -329,6 +331,34 @@ Telemetry
 </tr>
 <tr>
 <td>
+<code>rewriteClientIP</code><br/>
+<em>
+<a href="#gateway.nginx.org/v1alpha1.RewriteClientIP">
+RewriteClientIP
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>RewriteClientIP defines configuration for rewriting the client IP to the original client&rsquo;s IP.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>logging</code><br/>
+<em>
+<a href="#gateway.nginx.org/v1alpha1.NginxLogging">
+NginxLogging
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Logging defines logging related settings for NGINX.</p>
+</td>
+</tr>
+<tr>
+<td>
 <code>disableHTTP2</code><br/>
 <em>
 bool
@@ -452,6 +482,171 @@ sigs.k8s.io/gateway-api/apis/v1alpha2.PolicyStatus
 </td>
 </tr>
 </tbody>
+</table>
+<h3 id="gateway.nginx.org/v1alpha1.SnippetsFilter">SnippetsFilter
+<a class="headerlink" href="#gateway.nginx.org%2fv1alpha1.SnippetsFilter" title="Permanent link">¶</a>
+</h3>
+<p>
+<p>SnippetsFilter is a filter that allows inserting NGINX configuration into the
+generated NGINX config for HTTPRoute and GRPCRoute resources.</p>
+</p>
+<table class="table table-bordered table-striped">
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>apiVersion</code><br/>
+string</td>
+<td>
+<code>
+gateway.nginx.org/v1alpha1
+</code>
+</td>
+</tr>
+<tr>
+<td>
+<code>kind</code><br/>
+string
+</td>
+<td><code>SnippetsFilter</code></td>
+</tr>
+<tr>
+<td>
+<code>metadata</code><br/>
+<em>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#objectmeta-v1-meta">
+Kubernetes meta/v1.ObjectMeta
+</a>
+</em>
+</td>
+<td>
+Refer to the Kubernetes API documentation for the fields of the
+<code>metadata</code> field.
+</td>
+</tr>
+<tr>
+<td>
+<code>spec</code><br/>
+<em>
+<a href="#gateway.nginx.org/v1alpha1.SnippetsFilterSpec">
+SnippetsFilterSpec
+</a>
+</em>
+</td>
+<td>
+<p>Spec defines the desired state of the SnippetsFilter.</p>
+<br/>
+<br/>
+<table class="table table-bordered table-striped">
+<tr>
+<td>
+<code>snippets</code><br/>
+<em>
+<a href="#gateway.nginx.org/v1alpha1.Snippet">
+[]Snippet
+</a>
+</em>
+</td>
+<td>
+<p>Snippets is a list of NGINX configuration snippets.
+There can only be one snippet per context.
+Allowed contexts: main, http, http.server, http.server.location.</p>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+<tr>
+<td>
+<code>status</code><br/>
+<em>
+<a href="#gateway.nginx.org/v1alpha1.SnippetsFilterStatus">
+SnippetsFilterStatus
+</a>
+</em>
+</td>
+<td>
+<p>Status defines the state of the SnippetsFilter.</p>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="gateway.nginx.org/v1alpha1.Address">Address
+<a class="headerlink" href="#gateway.nginx.org%2fv1alpha1.Address" title="Permanent link">¶</a>
+</h3>
+<p>
+(<em>Appears on: </em>
+<a href="#gateway.nginx.org/v1alpha1.RewriteClientIP">RewriteClientIP</a>)
+</p>
+<p>
+<p>Address is a struct that specifies address type and value.</p>
+</p>
+<table class="table table-bordered table-striped">
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>type</code><br/>
+<em>
+<a href="#gateway.nginx.org/v1alpha1.AddressType">
+AddressType
+</a>
+</em>
+</td>
+<td>
+<p>Type specifies the type of address.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>value</code><br/>
+<em>
+string
+</em>
+</td>
+<td>
+<p>Value specifies the address value.</p>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="gateway.nginx.org/v1alpha1.AddressType">AddressType
+(<code>string</code> alias)</p><a class="headerlink" href="#gateway.nginx.org%2fv1alpha1.AddressType" title="Permanent link">¶</a>
+</h3>
+<p>
+(<em>Appears on: </em>
+<a href="#gateway.nginx.org/v1alpha1.Address">Address</a>)
+</p>
+<p>
+<p>AddressType specifies the type of address.</p>
+</p>
+<table class="table table-bordered table-striped">
+<thead>
+<tr>
+<th>Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr><td><p>&#34;CIDR&#34;</p></td>
+<td><p>CIDRAddressType specifies that the address is a CIDR block.</p>
+</td>
+</tr><tr><td><p>&#34;Hostname&#34;</p></td>
+<td><p>HostnameAddressType specifies that the address is a Hostname.</p>
+</td>
+</tr><tr><td><p>&#34;IPAddress&#34;</p></td>
+<td><p>IPAddressType specifies that the address is an IP address.</p>
+</td>
+</tr></tbody>
 </table>
 <h3 id="gateway.nginx.org/v1alpha1.ClientBody">ClientBody
 <a class="headerlink" href="#gateway.nginx.org%2fv1alpha1.ClientBody" title="Permanent link">¶</a>
@@ -716,6 +911,61 @@ Support: Gateway, HTTPRoute, GRPCRoute.</p>
 </td>
 </tr></tbody>
 </table>
+<h3 id="gateway.nginx.org/v1alpha1.ControllerStatus">ControllerStatus
+<a class="headerlink" href="#gateway.nginx.org%2fv1alpha1.ControllerStatus" title="Permanent link">¶</a>
+</h3>
+<p>
+(<em>Appears on: </em>
+<a href="#gateway.nginx.org/v1alpha1.SnippetsFilterStatus">SnippetsFilterStatus</a>)
+</p>
+<p>
+</p>
+<table class="table table-bordered table-striped">
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>controllerName</code><br/>
+<em>
+<a href="https://pkg.go.dev/sigs.k8s.io/gateway-api/apis/v1#GatewayController">
+sigs.k8s.io/gateway-api/apis/v1.GatewayController
+</a>
+</em>
+</td>
+<td>
+<p>ControllerName is a domain/path string that indicates the name of the
+controller that wrote this status. This corresponds with the
+controllerName field on GatewayClass.</p>
+<p>Example: &ldquo;example.net/gateway-controller&rdquo;.</p>
+<p>The format of this field is DOMAIN &ldquo;/&rdquo; PATH, where DOMAIN and PATH are
+valid Kubernetes names
+(<a href="https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names">https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names</a>).</p>
+<p>Controllers MUST populate this field when writing status. Controllers should ensure that
+entries to status populated with their ControllerName are cleaned up when they are no
+longer necessary.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>conditions</code><br/>
+<em>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#condition-v1-meta">
+[]Kubernetes meta/v1.Condition
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Conditions describe the status of the SnippetsFilter.</p>
+</td>
+</tr>
+</tbody>
+</table>
 <h3 id="gateway.nginx.org/v1alpha1.Duration">Duration
 (<code>string</code> alias)</p><a class="headerlink" href="#gateway.nginx.org%2fv1alpha1.Duration" title="Permanent link">¶</a>
 </h3>
@@ -728,8 +978,9 @@ Support: Gateway, HTTPRoute, GRPCRoute.</p>
 </p>
 <p>
 <p>Duration is a string value representing a duration in time.
-Duration can be specified in milliseconds (ms) or seconds (s) A value without a suffix is seconds.
-Examples: 120s, 50ms.</p>
+Duration can be specified in milliseconds (ms), seconds (s), minutes (m), hours (h).
+A value without a suffix is seconds.
+Examples: 120s, 50ms, 5m, 1h.</p>
 </p>
 <h3 id="gateway.nginx.org/v1alpha1.IPFamilyType">IPFamilyType
 (<code>string</code> alias)</p><a class="headerlink" href="#gateway.nginx.org%2fv1alpha1.IPFamilyType" title="Permanent link">¶</a>
@@ -792,6 +1043,83 @@ ControllerLogLevel
 </td>
 </tr>
 </tbody>
+</table>
+<h3 id="gateway.nginx.org/v1alpha1.NginxContext">NginxContext
+(<code>string</code> alias)</p><a class="headerlink" href="#gateway.nginx.org%2fv1alpha1.NginxContext" title="Permanent link">¶</a>
+</h3>
+<p>
+(<em>Appears on: </em>
+<a href="#gateway.nginx.org/v1alpha1.Snippet">Snippet</a>)
+</p>
+<p>
+<p>NginxContext represents the NGINX configuration context.</p>
+</p>
+<table class="table table-bordered table-striped">
+<thead>
+<tr>
+<th>Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr><td><p>&#34;http&#34;</p></td>
+<td><p>NginxContextHTTP is the http context of the NGINX configuration.
+<a href="https://nginx.org/en/docs/http/ngx_http_core_module.html#http">https://nginx.org/en/docs/http/ngx_http_core_module.html#http</a></p>
+</td>
+</tr><tr><td><p>&#34;http.server&#34;</p></td>
+<td><p>NginxContextHTTPServer is the server context of the NGINX configuration.
+<a href="https://nginx.org/en/docs/http/ngx_http_core_module.html#server">https://nginx.org/en/docs/http/ngx_http_core_module.html#server</a></p>
+</td>
+</tr><tr><td><p>&#34;http.server.location&#34;</p></td>
+<td><p>NginxContextHTTPServerLocation is the location context of the NGINX configuration.
+<a href="https://nginx.org/en/docs/http/ngx_http_core_module.html#location">https://nginx.org/en/docs/http/ngx_http_core_module.html#location</a></p>
+</td>
+</tr><tr><td><p>&#34;main&#34;</p></td>
+<td><p>NginxContextMain is the main context of the NGINX configuration.</p>
+</td>
+</tr></tbody>
+</table>
+<h3 id="gateway.nginx.org/v1alpha1.NginxErrorLogLevel">NginxErrorLogLevel
+(<code>string</code> alias)</p><a class="headerlink" href="#gateway.nginx.org%2fv1alpha1.NginxErrorLogLevel" title="Permanent link">¶</a>
+</h3>
+<p>
+(<em>Appears on: </em>
+<a href="#gateway.nginx.org/v1alpha1.NginxLogging">NginxLogging</a>)
+</p>
+<p>
+<p>NginxErrorLogLevel type defines the log level of error logs for NGINX.</p>
+</p>
+<table class="table table-bordered table-striped">
+<thead>
+<tr>
+<th>Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr><td><p>&#34;alert&#34;</p></td>
+<td><p>NginxLogLevelAlert is the alert level for NGINX error logs.</p>
+</td>
+</tr><tr><td><p>&#34;crit&#34;</p></td>
+<td><p>NginxLogLevelCrit is the crit level for NGINX error logs.</p>
+</td>
+</tr><tr><td><p>&#34;debug&#34;</p></td>
+<td><p>NginxLogLevelDebug is the debug level for NGINX error logs.</p>
+</td>
+</tr><tr><td><p>&#34;emerg&#34;</p></td>
+<td><p>NginxLogLevelEmerg is the emerg level for NGINX error logs.</p>
+</td>
+</tr><tr><td><p>&#34;error&#34;</p></td>
+<td><p>NginxLogLevelError is the error level for NGINX error logs.</p>
+</td>
+</tr><tr><td><p>&#34;info&#34;</p></td>
+<td><p>NginxLogLevelInfo is the info level for NGINX error logs.</p>
+</td>
+</tr><tr><td><p>&#34;notice&#34;</p></td>
+<td><p>NginxLogLevelNotice is the notice level for NGINX error logs.</p>
+</td>
+</tr><tr><td><p>&#34;warn&#34;</p></td>
+<td><p>NginxLogLevelWarn is the warn level for NGINX error logs.</p>
+</td>
+</tr></tbody>
 </table>
 <h3 id="gateway.nginx.org/v1alpha1.NginxGatewayConditionReason">NginxGatewayConditionReason
 (<code>string</code> alias)</p><a class="headerlink" href="#gateway.nginx.org%2fv1alpha1.NginxGatewayConditionReason" title="Permanent link">¶</a>
@@ -902,6 +1230,43 @@ Logging
 </tr>
 </tbody>
 </table>
+<h3 id="gateway.nginx.org/v1alpha1.NginxLogging">NginxLogging
+<a class="headerlink" href="#gateway.nginx.org%2fv1alpha1.NginxLogging" title="Permanent link">¶</a>
+</h3>
+<p>
+(<em>Appears on: </em>
+<a href="#gateway.nginx.org/v1alpha1.NginxProxySpec">NginxProxySpec</a>)
+</p>
+<p>
+<p>NginxLogging defines logging related settings for NGINX.</p>
+</p>
+<table class="table table-bordered table-striped">
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>errorLevel</code><br/>
+<em>
+<a href="#gateway.nginx.org/v1alpha1.NginxErrorLogLevel">
+NginxErrorLogLevel
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>ErrorLevel defines the error log level. Possible log levels listed in order of increasing severity are
+debug, info, notice, warn, error, crit, alert, and emerg. Setting a certain log level will cause all messages
+of the specified and more severe log levels to be logged. For example, the log level &lsquo;error&rsquo; will cause error,
+crit, alert, and emerg messages to be logged. <a href="https://nginx.org/en/docs/ngx_core_module.html#error_log">https://nginx.org/en/docs/ngx_core_module.html#error_log</a></p>
+</td>
+</tr>
+</tbody>
+</table>
 <h3 id="gateway.nginx.org/v1alpha1.NginxProxySpec">NginxProxySpec
 <a class="headerlink" href="#gateway.nginx.org%2fv1alpha1.NginxProxySpec" title="Permanent link">¶</a>
 </h3>
@@ -947,6 +1312,34 @@ Telemetry
 <td>
 <em>(Optional)</em>
 <p>Telemetry specifies the OpenTelemetry configuration.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>rewriteClientIP</code><br/>
+<em>
+<a href="#gateway.nginx.org/v1alpha1.RewriteClientIP">
+RewriteClientIP
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>RewriteClientIP defines configuration for rewriting the client IP to the original client&rsquo;s IP.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>logging</code><br/>
+<em>
+<a href="#gateway.nginx.org/v1alpha1.NginxLogging">
+NginxLogging
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Logging defines logging related settings for NGINX.</p>
 </td>
 </tr>
 <tr>
@@ -1013,6 +1406,116 @@ Support: HTTPRoute, GRPCRoute.</p>
 </tr>
 </tbody>
 </table>
+<h3 id="gateway.nginx.org/v1alpha1.RewriteClientIP">RewriteClientIP
+<a class="headerlink" href="#gateway.nginx.org%2fv1alpha1.RewriteClientIP" title="Permanent link">¶</a>
+</h3>
+<p>
+(<em>Appears on: </em>
+<a href="#gateway.nginx.org/v1alpha1.NginxProxySpec">NginxProxySpec</a>)
+</p>
+<p>
+<p>RewriteClientIP specifies the configuration for rewriting the client&rsquo;s IP address.</p>
+</p>
+<table class="table table-bordered table-striped">
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>mode</code><br/>
+<em>
+<a href="#gateway.nginx.org/v1alpha1.RewriteClientIPModeType">
+RewriteClientIPModeType
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Mode defines how NGINX will rewrite the client&rsquo;s IP address.
+There are two possible modes:
+- ProxyProtocol: NGINX will rewrite the client&rsquo;s IP using the PROXY protocol header.
+- XForwardedFor: NGINX will rewrite the client&rsquo;s IP using the X-Forwarded-For header.
+Sets NGINX directive real_ip_header: <a href="https://nginx.org/en/docs/http/ngx_http_realip_module.html#real_ip_header">https://nginx.org/en/docs/http/ngx_http_realip_module.html#real_ip_header</a></p>
+</td>
+</tr>
+<tr>
+<td>
+<code>setIPRecursively</code><br/>
+<em>
+bool
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>SetIPRecursively configures whether recursive search is used when selecting the client&rsquo;s address from
+the X-Forwarded-For header. It is used in conjunction with TrustedAddresses.
+If enabled, NGINX will recurse on the values in X-Forwarded-Header from the end of array
+to start of array and select the first untrusted IP.
+For example, if X-Forwarded-For is [11.11.11.11, 22.22.22.22, 55.55.55.1],
+and TrustedAddresses is set to 55.55.55.<sup>1</sup>&frasl;<sub>32</sub>, NGINX will rewrite the client IP to 22.22.22.22.
+If disabled, NGINX will select the IP at the end of the array.
+In the previous example, 55.55.55.1 would be selected.
+Sets NGINX directive real_ip_recursive: <a href="https://nginx.org/en/docs/http/ngx_http_realip_module.html#real_ip_recursive">https://nginx.org/en/docs/http/ngx_http_realip_module.html#real_ip_recursive</a></p>
+</td>
+</tr>
+<tr>
+<td>
+<code>trustedAddresses</code><br/>
+<em>
+<a href="#gateway.nginx.org/v1alpha1.Address">
+[]Address
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>TrustedAddresses specifies the addresses that are trusted to send correct client IP information.
+If a request comes from a trusted address, NGINX will rewrite the client IP information,
+and forward it to the backend in the X-Forwarded-For* and X-Real-IP headers.
+If the request does not come from a trusted address, NGINX will not rewrite the client IP information.
+TrustedAddresses only supports CIDR blocks: 192.33.21.<sup>1</sup>&frasl;<sub>24</sub>, fe80::<sup>1</sup>&frasl;<sub>64</sub>.
+To trust all addresses (not recommended for production), set to 0.0.0.0/0.
+If no addresses are provided, NGINX will not rewrite the client IP information.
+Sets NGINX directive set_real_ip_from: <a href="https://nginx.org/en/docs/http/ngx_http_realip_module.html#set_real_ip_from">https://nginx.org/en/docs/http/ngx_http_realip_module.html#set_real_ip_from</a>
+This field is required if mode is set.</p>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="gateway.nginx.org/v1alpha1.RewriteClientIPModeType">RewriteClientIPModeType
+(<code>string</code> alias)</p><a class="headerlink" href="#gateway.nginx.org%2fv1alpha1.RewriteClientIPModeType" title="Permanent link">¶</a>
+</h3>
+<p>
+(<em>Appears on: </em>
+<a href="#gateway.nginx.org/v1alpha1.RewriteClientIP">RewriteClientIP</a>)
+</p>
+<p>
+<p>RewriteClientIPModeType defines how NGINX Gateway Fabric will determine the client&rsquo;s original IP address.</p>
+</p>
+<table class="table table-bordered table-striped">
+<thead>
+<tr>
+<th>Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr><td><p>&#34;ProxyProtocol&#34;</p></td>
+<td><p>RewriteClientIPModeProxyProtocol configures NGINX to accept PROXY protocol and
+set the client&rsquo;s IP address to the IP address in the PROXY protocol header.
+Sets the proxy_protocol parameter on the listen directive of all servers and sets real_ip_header
+to proxy_protocol: <a href="https://nginx.org/en/docs/http/ngx_http_realip_module.html#real_ip_header">https://nginx.org/en/docs/http/ngx_http_realip_module.html#real_ip_header</a>.</p>
+</td>
+</tr><tr><td><p>&#34;XForwardedFor&#34;</p></td>
+<td><p>RewriteClientIPModeXForwardedFor configures NGINX to set the client&rsquo;s IP address to the
+IP address in the X-Forwarded-For HTTP header.
+<a href="https://nginx.org/en/docs/http/ngx_http_realip_module.html#real_ip_header">https://nginx.org/en/docs/http/ngx_http_realip_module.html#real_ip_header</a>.</p>
+</td>
+</tr></tbody>
+</table>
 <h3 id="gateway.nginx.org/v1alpha1.Size">Size
 (<code>string</code> alias)</p><a class="headerlink" href="#gateway.nginx.org%2fv1alpha1.Size" title="Permanent link">¶</a>
 </h3>
@@ -1025,6 +1528,168 @@ Support: HTTPRoute, GRPCRoute.</p>
 or gigabytes (g).
 Examples: 1024, 8k, 1m.</p>
 </p>
+<h3 id="gateway.nginx.org/v1alpha1.Snippet">Snippet
+<a class="headerlink" href="#gateway.nginx.org%2fv1alpha1.Snippet" title="Permanent link">¶</a>
+</h3>
+<p>
+(<em>Appears on: </em>
+<a href="#gateway.nginx.org/v1alpha1.SnippetsFilterSpec">SnippetsFilterSpec</a>)
+</p>
+<p>
+<p>Snippet represents an NGINX configuration snippet.</p>
+</p>
+<table class="table table-bordered table-striped">
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>context</code><br/>
+<em>
+<a href="#gateway.nginx.org/v1alpha1.NginxContext">
+NginxContext
+</a>
+</em>
+</td>
+<td>
+<p>Context is the NGINX context to insert the snippet into.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>value</code><br/>
+<em>
+string
+</em>
+</td>
+<td>
+<p>Value is the NGINX configuration snippet.</p>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="gateway.nginx.org/v1alpha1.SnippetsFilterConditionReason">SnippetsFilterConditionReason
+(<code>string</code> alias)</p><a class="headerlink" href="#gateway.nginx.org%2fv1alpha1.SnippetsFilterConditionReason" title="Permanent link">¶</a>
+</h3>
+<p>
+<p>SnippetsFilterConditionReason is a reason for a SnippetsFilter condition type.</p>
+</p>
+<table class="table table-bordered table-striped">
+<thead>
+<tr>
+<th>Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr><td><p>&#34;Accepted&#34;</p></td>
+<td><p>SnippetsFilterConditionReasonAccepted is used with the Accepted condition type when
+the condition is true.</p>
+</td>
+</tr><tr><td><p>&#34;Invalid&#34;</p></td>
+<td><p>SnippetsFilterConditionReasonInvalid is used with the Accepted condition type when
+SnippetsFilter is invalid.</p>
+</td>
+</tr></tbody>
+</table>
+<h3 id="gateway.nginx.org/v1alpha1.SnippetsFilterConditionType">SnippetsFilterConditionType
+(<code>string</code> alias)</p><a class="headerlink" href="#gateway.nginx.org%2fv1alpha1.SnippetsFilterConditionType" title="Permanent link">¶</a>
+</h3>
+<p>
+<p>SnippetsFilterConditionType is a type of condition associated with SnippetsFilter.</p>
+</p>
+<table class="table table-bordered table-striped">
+<thead>
+<tr>
+<th>Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr><td><p>&#34;Accepted&#34;</p></td>
+<td><p>SnippetsFilterConditionTypeAccepted indicates that the SnippetsFilter is accepted.</p>
+<p>Possible reasons for this condition to be True:</p>
+<ul>
+<li>Accepted</li>
+</ul>
+<p>Possible reasons for this condition to be False:</p>
+<ul>
+<li>Invalid.</li>
+</ul>
+</td>
+</tr></tbody>
+</table>
+<h3 id="gateway.nginx.org/v1alpha1.SnippetsFilterSpec">SnippetsFilterSpec
+<a class="headerlink" href="#gateway.nginx.org%2fv1alpha1.SnippetsFilterSpec" title="Permanent link">¶</a>
+</h3>
+<p>
+(<em>Appears on: </em>
+<a href="#gateway.nginx.org/v1alpha1.SnippetsFilter">SnippetsFilter</a>)
+</p>
+<p>
+<p>SnippetsFilterSpec defines the desired state of the SnippetsFilter.</p>
+</p>
+<table class="table table-bordered table-striped">
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>snippets</code><br/>
+<em>
+<a href="#gateway.nginx.org/v1alpha1.Snippet">
+[]Snippet
+</a>
+</em>
+</td>
+<td>
+<p>Snippets is a list of NGINX configuration snippets.
+There can only be one snippet per context.
+Allowed contexts: main, http, http.server, http.server.location.</p>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="gateway.nginx.org/v1alpha1.SnippetsFilterStatus">SnippetsFilterStatus
+<a class="headerlink" href="#gateway.nginx.org%2fv1alpha1.SnippetsFilterStatus" title="Permanent link">¶</a>
+</h3>
+<p>
+(<em>Appears on: </em>
+<a href="#gateway.nginx.org/v1alpha1.SnippetsFilter">SnippetsFilter</a>)
+</p>
+<p>
+<p>SnippetsFilterStatus defines the state of SnippetsFilter.</p>
+</p>
+<table class="table table-bordered table-striped">
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>controllers</code><br/>
+<em>
+<a href="#gateway.nginx.org/v1alpha1.ControllerStatus">
+[]ControllerStatus
+</a>
+</em>
+</td>
+<td>
+<p>Controllers is a list of Gateway API controllers that processed the SnippetsFilter
+and the status of the SnippetsFilter with respect to each controller.</p>
+</td>
+</tr>
+</tbody>
+</table>
 <h3 id="gateway.nginx.org/v1alpha1.SpanAttribute">SpanAttribute
 <a class="headerlink" href="#gateway.nginx.org%2fv1alpha1.SpanAttribute" title="Permanent link">¶</a>
 </h3>

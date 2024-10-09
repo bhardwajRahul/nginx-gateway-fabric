@@ -13,6 +13,7 @@ import (
 )
 
 func TestServicePortsChangedPredicate_Update(t *testing.T) {
+	t.Parallel()
 	testcases := []struct {
 		objectOld client.Object
 		objectNew client.Object
@@ -228,6 +229,7 @@ func TestServicePortsChangedPredicate_Update(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.msg, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 			update := p.Update(event.UpdateEvent{
 				ObjectOld: tc.objectOld,
@@ -240,6 +242,7 @@ func TestServicePortsChangedPredicate_Update(t *testing.T) {
 }
 
 func TestServicePortsChangedPredicate(t *testing.T) {
+	t.Parallel()
 	g := NewWithT(t)
 
 	p := GatewayServicePredicate{}
@@ -250,6 +253,7 @@ func TestServicePortsChangedPredicate(t *testing.T) {
 }
 
 func TestGatewayServicePredicate_Update(t *testing.T) {
+	t.Parallel()
 	testcases := []struct {
 		objectOld client.Object
 		objectNew client.Object
@@ -441,6 +445,7 @@ func TestGatewayServicePredicate_Update(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.msg, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 			update := p.Update(event.UpdateEvent{
 				ObjectOld: tc.objectOld,
@@ -453,6 +458,7 @@ func TestGatewayServicePredicate_Update(t *testing.T) {
 }
 
 func TestGatewayServicePredicate(t *testing.T) {
+	t.Parallel()
 	g := NewWithT(t)
 
 	p := GatewayServicePredicate{}

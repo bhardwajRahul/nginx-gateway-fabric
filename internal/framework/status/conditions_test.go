@@ -9,6 +9,7 @@ import (
 )
 
 func TestConditionsEqual(t *testing.T) {
+	t.Parallel()
 	getDefaultConds := func() []v1.Condition {
 		return []v1.Condition{
 			{
@@ -111,6 +112,7 @@ func TestConditionsEqual(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			g := NewWithT(t)
 			equal := ConditionsEqual(test.prevConds, test.curConds)
 			g.Expect(equal).To(Equal(test.expEqual))

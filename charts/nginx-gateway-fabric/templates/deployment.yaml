@@ -29,6 +29,33 @@ spec:
         {{- end }}
       {{- end }}
     spec:
+      initContainers:
+      - name: copy-nginx-config
+        image: {{ .Values.nginxGateway.image.repository }}:{{ default .Chart.AppVersion .Values.nginxGateway.image.tag }}
+        imagePullPolicy: {{ .Values.nginxGateway.image.pullPolicy }}
+        command:
+        - /usr/bin/gateway
+        - copy
+        - --source
+        - /includes/main.conf
+        - --destination
+        - /etc/nginx/main-includes/main.conf
+        securityContext:
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            add:
+            - KILL # Set because the binary has CAP_KILL for the main controller process. Not used by init.
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsUser: 102
+          runAsGroup: 1001
+        volumeMounts:
+        - name: nginx-includes-configmap
+          mountPath: /includes
+        - name: nginx-main-includes
+          mountPath: /etc/nginx/main-includes
       containers:
       - args:
         - static-mode
@@ -74,6 +101,9 @@ spec:
         {{- end }}
         {{- if .Values.nginx.usage.insecureSkipVerify }}
         - --usage-report-skip-verify
+        {{- end }}
+        {{- if .Values.nginxGateway.snippetsFilters.enable }}
+        - --snippets-filters
         {{- end }}
         env:
         - name: POD_IP
@@ -131,8 +161,8 @@ spec:
           mountPath: /etc/nginx/conf.d
         - name: nginx-stream-conf
           mountPath: /etc/nginx/stream-conf.d
-        - name: module-includes
-          mountPath: /etc/nginx/module-includes
+        - name: nginx-main-includes
+          mountPath: /etc/nginx/main-includes
         - name: nginx-secrets
           mountPath: /etc/nginx/secrets
         - name: nginx-run
@@ -170,8 +200,8 @@ spec:
           mountPath: /etc/nginx/conf.d
         - name: nginx-stream-conf
           mountPath: /etc/nginx/stream-conf.d
-        - name: module-includes
-          mountPath: /etc/nginx/module-includes
+        - name: nginx-main-includes
+          mountPath: /etc/nginx/main-includes
         - name: nginx-secrets
           mountPath: /etc/nginx/secrets
         - name: nginx-run
@@ -182,6 +212,13 @@ spec:
           mountPath: /etc/nginx/includes
         {{- with .Values.nginx.extraVolumeMounts -}}
         {{ toYaml . | nindent 8 }}
+        {{- end }}
+        {{- if .Values.nginx.debug }}
+        command:
+          - "/bin/sh"
+        args:
+          - "-c"
+          - "rm -rf /var/run/nginx/*.sock && nginx-debug -g 'daemon off;'"
         {{- end }}
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       {{- if .Values.affinity }}
@@ -206,7 +243,7 @@ spec:
         emptyDir: {}
       - name: nginx-stream-conf
         emptyDir: {}
-      - name: module-includes
+      - name: nginx-main-includes
         emptyDir: {}
       - name: nginx-secrets
         emptyDir: {}
@@ -216,6 +253,9 @@ spec:
         emptyDir: {}
       - name: nginx-includes
         emptyDir: {}
+      - name: nginx-includes-configmap
+        configMap:
+          name: nginx-includes
       {{- with .Values.extraVolumes -}}
       {{ toYaml . | nindent 6 }}
       {{- end }}

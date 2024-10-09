@@ -9,6 +9,7 @@ import (
 )
 
 func TestDataAttributes(t *testing.T) {
+	t.Parallel()
 	data := Data{
 		ImageSource: "local",
 		Data: tel.Data{
@@ -31,6 +32,7 @@ func TestDataAttributes(t *testing.T) {
 			ServiceCount:                             5,
 			EndpointCount:                            6,
 			GRPCRouteCount:                           7,
+			TLSRouteCount:                            5,
 			BackendTLSPolicyCount:                    8,
 			GatewayAttachedClientSettingsPolicyCount: 9,
 			RouteAttachedClientSettingsPolicyCount:   10,
@@ -56,6 +58,7 @@ func TestDataAttributes(t *testing.T) {
 		attribute.Int64("GatewayCount", 1),
 		attribute.Int64("GatewayClassCount", 2),
 		attribute.Int64("HTTPRouteCount", 3),
+		attribute.Int64("TLSRouteCount", 5),
 		attribute.Int64("SecretCount", 4),
 		attribute.Int64("ServiceCount", 5),
 		attribute.Int64("EndpointCount", 6),
@@ -75,6 +78,7 @@ func TestDataAttributes(t *testing.T) {
 }
 
 func TestDataAttributesWithEmptyData(t *testing.T) {
+	t.Parallel()
 	data := Data{}
 
 	expected := []attribute.KeyValue{
@@ -93,6 +97,7 @@ func TestDataAttributesWithEmptyData(t *testing.T) {
 		attribute.Int64("GatewayCount", 0),
 		attribute.Int64("GatewayClassCount", 0),
 		attribute.Int64("HTTPRouteCount", 0),
+		attribute.Int64("TLSRouteCount", 0),
 		attribute.Int64("SecretCount", 0),
 		attribute.Int64("ServiceCount", 0),
 		attribute.Int64("EndpointCount", 0),
